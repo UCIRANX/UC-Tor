@@ -24,7 +24,7 @@ android {
     defaultConfig {
         // NEVER change applicationId, otherwise new versions will not install over old ones.
         applicationId = "ir.uciran.uctor"
-        minSdk = 24
+        minSdk = 29
         targetSdk = 35
         versionCode = ciVersionCode
         versionName = ciVersionName
