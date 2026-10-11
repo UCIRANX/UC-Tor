@@ -179,6 +179,7 @@ jobs:
           fi
           curl -fL --retry 3 "$URL" -o app/libs/hev-socks5-tunnel.aar
           unzip -l app/libs/hev-socks5-tunnel.aar | grep -q 'hev-socks5-tunnel' || { echo "::error::Downloaded tunnel AAR is invalid"; exit 1; }
+          echo "Tunnel AAR downloaded; app minSdk is 29 to match its manifest requirement."
 
       - name: Build APKs (new + old phones)
         if: steps.check.outputs.ok == 'true'
