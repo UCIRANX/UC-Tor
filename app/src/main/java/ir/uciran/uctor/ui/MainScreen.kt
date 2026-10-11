@@ -157,6 +157,7 @@ fun MainScreen() {
                     )
                     Spacer(Modifier.height(8.dp))
                 }
+                }
             }
         }
     }
@@ -186,7 +187,7 @@ private fun Header() {
                 .background(Brush.linearGradient(listOf(Violet, Color(0xFF4F46E5), Cyan))),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_onion_mono), null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Icon(painterResource(R.drawable.ic_launcher_monochrome), null, tint = Color.White, modifier = Modifier.size(26.dp))
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
