@@ -39,10 +39,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.uciran.uctor.AppChoice
@@ -57,6 +59,8 @@ private val FILTERS = listOf("همه", "نصب‌شده", "سیستمی", "ان�
 @Composable
 internal fun AppPicker(prefs: Prefs, onChange: (Set<String>) -> Unit) {
     val ctx = LocalContext.current
+    // ارتفاع فهرست با ارتفاع پنجره تنظیم می‌شود (در حالت افقی کوتاه‌تر).
+    val listH = (LocalConfiguration.current.screenHeightDp * 0.5f).dp.coerceIn(170.dp, 340.dp)
     var apps by remember { mutableStateOf<List<AppChoice>?>(null) }
     var selected by remember { mutableStateOf(prefs.selectedApps) }
     var query by remember { mutableStateOf("") }
@@ -106,7 +110,7 @@ internal fun AppPicker(prefs: Prefs, onChange: (Set<String>) -> Unit) {
             }
         }
         Box(
-            Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = .18f)),
+            Modifier.fillMaxWidth().height(listH).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = .18f)),
             contentAlignment = Alignment.Center,
         ) {
             when {

@@ -23,6 +23,10 @@ class Prefs(ctx: Context) {
     var exitNodes: String
         get() = str("exitNodes")
         set(v) = put("exitNodes", v)
+    /** کد کشور خروجی (مثلاً "de")؛ خالی یعنی خودکار. */
+    var exitCountry: String
+        get() = str("exitCountry")
+        set(v) = put("exitCountry", v)
     var lastGood: String?
         get() = sp.getString("lastGood", null)
         set(v) = put("lastGood", v)

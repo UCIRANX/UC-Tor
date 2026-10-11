@@ -18,11 +18,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -73,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -83,6 +87,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -107,8 +112,30 @@ fun MainScreen() {
     val state by TorController.state.collectAsStateWithLifecycle()
     val prefs = remember { Prefs(ctx.applicationContext) }
     var transport by remember { mutableStateOf(Transport.fromId(prefs.transport)) }
+    var country by remember { mutableStateOf(prefs.exitCountry) }
     LaunchedEffect(state.phase) {
         if (state.phase == Phase.CONNECTED) (ctx as? MainActivity)?.startFullVpnIfReady()
+    }
+    val idle = state.phase == Phase.IDLE || state.phase == Phase.ERROR
+    val onConnect: () -> Unit = {
+        when (state.phase) {
+            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
+            Phase.STOPPING -> Unit
+            else -> TorController.connect()
+        }
+    }
+    // کارت‌ها یک‌بار تعریف می‌شوند و در هر دو چیدمان (یک‌ستونه و دوستونه) استفاده می‌شوند.
+    val cards: @Composable () -> Unit = {
+        ConnectionOptionsCard(
+            transport = transport, country = country, enabled = idle,
+            onTransport = { t -> transport = t; prefs.transport = t.id },
+            onCountry = { c -> country = c; prefs.exitCountry = c },
+        )
+        BridgeCard(state)
+        ChannelCard()
+        AdvancedCard(prefs, state)
+        LogCard(state)
+        Text("UC Tor v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -118,46 +145,69 @@ fun MainScreen() {
                     Brush.verticalGradient(listOf(Color(0xFF1C1238), Bg, Bg))
                 )
             ) {
-                Column(
+                // safeDrawing = نوار وضعیت + دکمه‌های ناوبری (کنار صفحه در حالت افقی) + برش صفحه + کیبورد.
+                BoxWithConstraints(
                     Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(horizontal = 18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    // Fixed zone: header and connect button never participate in scrolling.
-                    Header()
-                    Spacer(Modifier.height(6.dp))
-                    ConnectButton(state) {
-                        when (state.phase) {
-                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
-                            Phase.STOPPING -> Unit
-                            else -> TorController.connect()
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        Column(
-                            Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(bottom = 16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                    val w = maxWidth
+                    val h = maxHeight
+                    val wide = w >= 600.dp && w > h * 1.15f
+                    if (wide) {
+                        // افقی / تبلت: دکمه و وضعیت یک طرف (ثابت و وسط‌چین)، کارت‌ها طرف دیگر (اسکرول).
+                        Row(
+                            Modifier.widthIn(max = 1000.dp).fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            StatusBlock(state)
-                            TransportCard(
-                                selected = transport,
-                                enabled = state.phase == Phase.IDLE || state.phase == Phase.ERROR,
-                            ) { t ->
-                                transport = t
-                                prefs.transport = t.id
+                            Box(Modifier.weight(0.42f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                                Column(
+                                    Modifier.fillMaxWidth().heightIn(min = h),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Header()
+                                    Spacer(Modifier.height(6.dp))
+                                    ConnectButton(state, (h * 0.5f).coerceIn(110.dp, 180.dp), onConnect)
+                                    Spacer(Modifier.height(4.dp))
+                                    StatusBlock(state)
+                                }
                             }
-                            BridgeCard(state)
-                            ChannelCard()
-                            AdvancedCard(prefs, state)
-                            LogCard(state)
-                            Text("UC Tor v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            Column(
+                                Modifier.weight(0.58f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) { cards() }
+                        }
+                    } else if (h >= 600.dp) {
+                        // عمودی: هدر و دکمه بالا و ثابت؛ بقیه اسکرول می‌شود. عرض روی تبلت/فولد محدود و وسط‌چین است.
+                        Column(Modifier.widthIn(max = 560.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Header()
+                            Spacer(Modifier.height(4.dp))
+                            ConnectButton(state, (h * 0.24f).coerceIn(120.dp, 164.dp), onConnect)
+                            Spacer(Modifier.height(4.dp))
+                            Column(
+                                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                StatusBlock(state)
+                                cards()
+                            }
+                        }
+                    } else {
+                        // ارتفاع کم (چندپنجره‌ای، فولد…): همه‌چیز با هم اسکرول می‌شود تا جایی بریده نشود.
+                        Column(
+                            Modifier.widthIn(max = 560.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Header()
+                            ConnectButton(state, 120.dp, onConnect)
+                            StatusBlock(state)
+                            cards()
                         }
                     }
                 }
@@ -165,32 +215,34 @@ fun MainScreen() {
         }
     }
 }
+
 @Composable
 private fun Header() {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(13.dp))
+                .size(36.dp)
+                .clip(RoundedCornerShape(11.dp))
                 .background(Brush.linearGradient(listOf(Violet, Color(0xFF4F46E5), Cyan))),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_launcher_monochrome), null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Icon(painterResource(R.drawable.ic_launcher_monochrome), null, tint = Color.White, modifier = Modifier.size(22.dp))
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("UC Tor", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+            Text("UC Tor", fontWeight = FontWeight.ExtraBold, fontSize = 19.sp)
             Text(
                 "اتصال امن و ساده به شبکه‌ی Tor",
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
+/** اندازه‌ی دکمه با پارامتر size تعیین می‌شود (۱۸۴dp = اندازه‌ی اصلی)؛ بقیه‌ی اجزا متناسب کوچک/بزرگ می‌شوند. */
 @Composable
-private fun ConnectButton(state: UiState, onClick: () -> Unit) {
+private fun ConnectButton(state: UiState, size: Dp, onClick: () -> Unit) {
     val connecting = state.phase == Phase.CONNECTING || state.phase == Phase.STOPPING
     val connected = state.phase == Phase.CONNECTED
     val inf = rememberInfiniteTransition(label = "ring")
@@ -207,11 +259,14 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
         state.phase == Phase.ERROR -> listOf(Color(0xFFF87171), Pink, Color(0xFFF87171))
         else -> listOf(Violet, Cyan, Pink, Violet)
     }
+    val k = size / 184.dp
+    // با بزرگ‌ترشدن فونت سیستم، متن داخل دایره از ۱.۱۵ برابر بزرگ‌تر نمی‌شود تا بریده نشود.
+    val fs = LocalDensity.current.fontScale
+    val cap = if (fs > 1.15f) 1.15f / fs else 1f
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .padding(top = 6.dp)
-            .size(184.dp)
+            .size(size)
             .graphicsLayer {
                 val s = if (connecting) pulse else 1f
                 scaleX = s
@@ -220,20 +275,20 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
     ) {
         Box(
             Modifier
-                .size(184.dp)
+                .size(size)
                 .clip(CircleShape)
                 .background(Brush.radialGradient(listOf(ring[0].copy(alpha = 0.35f), Color.Transparent)))
         )
         Box(
             Modifier
-                .size(154.dp)
+                .size(size * (154f / 184f))
                 .graphicsLayer { rotationZ = if (connecting) angle else 0f }
                 .clip(CircleShape)
                 .background(Brush.sweepGradient(ring))
         )
         Box(
             Modifier
-                .size(142.dp)
+                .size(size * (142f / 184f))
                 .clip(CircleShape)
                 .background(Surface1)
                 .clickable(enabled = state.phase != Phase.STOPPING, onClick = onClick),
@@ -243,9 +298,9 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
                 Icon(
                     painterResource(R.drawable.ic_onion_mono), null,
                     tint = if (connected) Green else Color.White,
-                    modifier = Modifier.size(46.dp),
+                    modifier = Modifier.size(46.dp * k),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp * k))
                 Text(
                     when (state.phase) {
                         Phase.CONNECTED -> "قطع اتصال"
@@ -254,7 +309,9 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
                         else -> "اتصال"
                     },
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
+                    fontSize = (16f * k.coerceIn(0.8f, 1f) * cap).sp,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
@@ -269,7 +326,7 @@ private fun StatusBlock(state: UiState) {
             Phase.ERROR -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.onBackground
         }
-        Text(state.status, color = color, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
+        Text(state.status, color = color, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
         if (state.phase == Phase.CONNECTED && !state.vpnReady && state.vpnError.isBlank()) {
             Spacer(Modifier.height(4.dp))
             Text("در حال فعال‌سازی VPN کل گوشی…", fontSize = 12.sp, color = Cyan)
@@ -281,7 +338,7 @@ private fun StatusBlock(state: UiState) {
         if (state.detail.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
             Text(
-                state.detail, fontSize = 13.sp, textAlign = TextAlign.Center,
+                state.detail, fontSize = 12.sp, textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -301,7 +358,7 @@ private fun StatusBlock(state: UiState) {
 }
 
 @Composable
-internal fun GlassCard(padding: Dp = 16.dp, content: @Composable ColumnScope.() -> Unit) {
+internal fun GlassCard(padding: Dp = 12.dp, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     Column(
         Modifier
@@ -332,28 +389,28 @@ private fun ChannelCard() {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF229ED9), Color(0xFF6D28D9))))
             .clickable { openUrl(ctx, TG_CHANNEL_URL) }
-            .padding(16.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .size(46.dp)
+                .size(32.dp)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.18f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_telegram), null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Icon(painterResource(R.drawable.ic_telegram), null, tint = Color.White, modifier = Modifier.size(20.dp))
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("کانال تلگرام ما", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("کانال تلگرام ما", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Text(
                 "@$TG_CHANNEL",
                 color = Color.White.copy(alpha = 0.92f),
-                fontSize = 15.sp,
+                fontSize = 12.sp,
                 style = TextStyle(textDirection = TextDirection.Ltr),
             )
         }
@@ -368,7 +425,7 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
     var exNodes by remember { mutableStateOf(prefs.excludeNodes) }
     var exExit by remember { mutableStateOf(prefs.excludeExitNodes) }
     var exitNodes by remember { mutableStateOf(prefs.exitNodes) }
-    GlassCard {
+    GlassCard(padding = 10.dp) {
         Row(
             Modifier.fillMaxWidth().clickable { open = !open },
             verticalAlignment = Alignment.CenterVertically,
@@ -379,7 +436,7 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
             Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, null)
         }
         AnimatedVisibility(visible = open) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
                 Text("مسیر عبور ترافیک", fontWeight = FontWeight.Bold)
                 TunnelPicker(prefs)
                 Field("بریج‌های دستی (هر خط یک بریج)", custom, minLines = 3) {
@@ -394,7 +451,7 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
                     exExit = it
                     prefs.excludeExitNodes = it
                 }
-                Field("Exit nodes   مثال: {de},{nl}", exitNodes) {
+                Field("Exit nodes   مثال: {de},{nl}  (با انتخاب کشور نادیده گرفته می‌شود)", exitNodes) {
                     exitNodes = it
                     prefs.exitNodes = it
                 }
@@ -427,7 +484,7 @@ private fun LogCard(state: UiState) {
     var open by remember { mutableStateOf(false) }
     val clip = LocalClipboardManager.current
     val ctx = LocalContext.current
-    GlassCard {
+    GlassCard(padding = 10.dp) {
         Row(
             Modifier.fillMaxWidth().clickable { open = !open },
             verticalAlignment = Alignment.CenterVertically,
@@ -443,7 +500,7 @@ private fun LogCard(state: UiState) {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 260.dp)
+                            .heightIn(max = 200.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color.Black.copy(alpha = 0.35f))
                             .verticalScroll(rememberScrollState())

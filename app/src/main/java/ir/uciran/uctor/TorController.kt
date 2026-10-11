@@ -58,6 +58,9 @@ object TorController {
     private lateinit var app: Context
     private val bootRe = Regex("Bootstrapped (\\d+)%")
 
+    /** اگر اتصال به‌خاطر نبودن خروجی در کشور انتخابی شکست بخورد، دلیلش اینجا می‌آید. */
+    @Volatile private var countryFailure: String? = null
+
     fun logFile(ctx: Context) = File(ctx.filesDir, "tor.log")
     fun stateFile(ctx: Context) = File(ctx.filesDir, "runner.state")
 
@@ -142,6 +145,20 @@ object TorController {
 
     private suspend fun runConnect() {
         val prefs = Prefs(app)
+        countryFailure = null
+        ExitCountries.find(prefs.exitCountry)?.let { c ->
+            val tag = "{${c.code}}"
+            val excluded = listOf(prefs.excludeNodes, prefs.excludeExitNodes).any { it.contains(tag, ignoreCase = true) }
+            if (excluded) {
+                _state.update {
+                    it.copy(
+                        phase = Phase.ERROR, progress = 0, status = "تنظیمات با هم تناقض دارند",
+                        detail = "کشور خروجی ${c.name} انتخاب شده ولی در تنظیمات پیشرفته (Exclude) هم جزو کشورهای حذف‌شده است. یکی از این دو را تغییر دهید.",
+                    )
+                }
+                return
+            }
+        }
         stopRunner()
         val bridges = BridgeRepository.load(app)
         val plan = Planner.plan(prefs, bridges)
@@ -165,8 +182,9 @@ object TorController {
             if (attempt(prefs, a)) {
                 prefs.lastGood = a.transport
                 prefs.activeTransport = a.transport
+                val exit = ExitCountries.find(prefs.exitCountry)?.let { c -> " · خروجی: ${c.flag} ${c.name}" }.orEmpty()
                 _state.update {
-                    it.copy(phase = Phase.CONNECTED, progress = 100, status = "متصل", detail = "از طریق ${a.label}")
+                    it.copy(phase = Phase.CONNECTED, progress = 100, status = "متصل", detail = "از طریق ${a.label}$exit")
                 }
                 scope.launch {
                     BridgeRepository.refreshViaTor(app, prefs.httpPort)
@@ -176,6 +194,18 @@ object TorController {
                 return
             }
             stopRunner()
+            // شکست به‌خاطر کشور است، نه بریج؛ امتحان روش‌های دیگر فقط وقت را تلف می‌کند.
+            countryFailure?.let { why ->
+                val c = ExitCountries.find(prefs.exitCountry)
+                _state.update {
+                    it.copy(
+                        phase = Phase.ERROR, progress = 0,
+                        status = "خروجی ${c?.name ?: "کشور انتخابی"} در دسترس نیست",
+                        detail = why, activeTransport = null,
+                    )
+                }
+                return
+            }
         }
         _state.update {
             it.copy(
@@ -194,6 +224,7 @@ object TorController {
         _state.update { it.copy(socksPort = socks, httpPort = http) }
 
         logFile(app).delete()
+        File(logFile(app).path + ".circ").delete()
         stateFile(app).delete()
         val cfg = JSONObject().apply {
             put("socks", socks)
@@ -203,6 +234,7 @@ object TorController {
             put("excludeNodes", prefs.excludeNodes)
             put("excludeExitNodes", prefs.excludeExitNodes)
             put("exitNodes", prefs.exitNodes)
+            put("exitCountry", prefs.exitCountry)
         }
         try {
             TorRunnerService.start(app, cfg.toString())
@@ -236,8 +268,17 @@ object TorController {
                 )
             }
             if (pct >= 100) {
-                val probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
+                val country = ExitCountries.find(prefs.exitCountry)
+                var probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
+                // ساختن مدار با خروجی یک کشور مشخص ممکن است کندتر باشد؛ یک بار دیگر هم امتحان می‌کنیم.
+                if (!probe.ok && country != null) {
+                    probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
+                }
                 if (probe.ok) return true
+                if (country != null) {
+                    countryFailure = countryReason(country, probe.message)
+                    return false
+                }
                 _state.update { it.copy(detail = "${a.label}: SOCKS برقرار است اما درخواست واقعی HTTPS پاسخ نداد (${probe.message})") }
                 return false
             }
@@ -270,6 +311,35 @@ object TorController {
         val until = System.currentTimeMillis() + 6000
         while (System.currentTimeMillis() < until && p.socksPort > 0 && isListening(p.socksPort)) delay(300)
         delay(700)
+    }
+
+    private fun readText(f: File, maxBytes: Long = 400_000L): String = try {
+        if (!f.exists()) "" else RandomAccessFile(f, "r").use { r ->
+            val len = r.length()
+            val from = maxOf(0L, len - maxBytes)
+            r.seek(from)
+            val buf = ByteArray((len - from).toInt())
+            r.readFully(buf)
+            String(buf, Charsets.UTF_8)
+        }
+    } catch (e: Exception) {
+        ""
+    }
+
+    /** دلیل قابل‌فهم برای وقتی که Tor وصل شده ولی مداری با خروجی کشور انتخابی ساخته نمی‌شود. */
+    private fun countryReason(c: ExitCountry, probeMsg: String): String {
+        val main = readText(logFile(app)).lowercase()
+        val circ = readText(File(logFile(app).path + ".circ")).lowercase()
+        val geoipProblem = "geoip" in main && Regex("unable|could not|couldn't|cannot|can't|no such file|failed").containsMatchIn(main)
+        val why = when {
+            geoipProblem ->
+                "Tor فایل GeoIP را نخواند و نمی‌تواند خروجی‌ها را بر اساس کشور انتخاب کند."
+            "failed to find node for hop" in circ || "strictnodes" in circ ->
+                "در این لحظه هیچ خروجی (exit) فعال و در دسترسی در ${c.name} پیدا نشد. چون فقط ${c.name} انتخاب شده، Tor سراغ کشور دیگری نمی‌رود."
+            else ->
+                "Tor به شبکه وصل شد اما حدود دو دقیقه مداری با خروجی ${c.name} نساخت ($probeMsg). معمولاً یعنی خروجی‌های این کشور فعلاً کم، شلوغ یا آفلاین‌اند."
+        }
+        return why + "\nکشور دیگری را امتحان کنید یا روی «خودکار» بگذارید."
     }
 
     /** Returns bootstrap percent (-1 if unknown) and the last log lines. */

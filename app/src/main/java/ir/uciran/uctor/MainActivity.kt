@@ -62,10 +62,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        // لبه‌تا‌لبه: فاصله‌ی نوار سیستم، دکمه‌های ناوبری، برش صفحه و کیبورد را خود Compose (safeDrawing) رعایت می‌کند.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        window.decorView.systemUiVisibility = 0
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.attributes = window.attributes.also {
+                it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else {
+            window.attributes = window.attributes.also {
+                it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         TorController.init(applicationContext)
         ContextCompat.registerReceiver(this, vpnReceiver, IntentFilter(FullVpnService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         setContent { UcTorTheme { MainScreen() } }

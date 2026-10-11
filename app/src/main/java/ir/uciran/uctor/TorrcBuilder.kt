@@ -24,8 +24,16 @@ object TorrcBuilder {
         }
         clean(cfg.optString("excludeNodes")).takeIf { it.isNotEmpty() }?.let { appendLine("ExcludeNodes $it") }
         clean(cfg.optString("excludeExitNodes")).takeIf { it.isNotEmpty() }?.let { appendLine("ExcludeExitNodes $it") }
-        clean(cfg.optString("exitNodes")).takeIf { it.isNotEmpty() }?.let {
-            appendLine("ExitNodes $it")
+        // انتخاب کشور: فقط خروجی‌های همان کشور (StrictNodes 1)؛ اگر پیدا نشد Tor سراغ کشور دیگر نمی‌رود.
+        val country = ExitCountries.find(cfg.optString("exitCountry"))?.code
+        val manual = clean(cfg.optString("exitNodes"))
+        if (country != null) {
+            appendLine("ExitNodes {$country}")
+            appendLine("StrictNodes 1")
+            // لاگ جداگانه‌ی مدارها، فقط برای تشخیص دلیل شکست وقتی خروجی آن کشور پیدا نمی‌شود.
+            appendLine("Log [circ]info file ${cfg.getString("log")}.circ")
+        } else if (manual.isNotEmpty()) {
+            appendLine("ExitNodes $manual")
             appendLine("StrictNodes 0")
         }
     }
