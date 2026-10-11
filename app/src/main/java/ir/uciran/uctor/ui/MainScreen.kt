@@ -35,6 +35,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,6 +69,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -113,10 +118,16 @@ fun MainScreen() {
     val prefs = remember { Prefs(ctx.applicationContext) }
     var transport by remember { mutableStateOf(Transport.fromId(prefs.transport)) }
     var country by remember { mutableStateOf(prefs.exitCountry) }
+    // وضعیت باز/بسته‌ی کارت‌ها و موقعیت اسکرول همین‌جا (بالاتر از هر شاخه‌ی چیدمان) نگه داشته می‌شود
+    // تا با تغییر چیدمان یا چرخش صفحه (rememberSaveable) پاک نشود.
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
+    var logOpen by rememberSaveable { mutableStateOf(false) }
+    val mainScroll = rememberScrollState()
+    val leftScroll = rememberScrollState()
+    val rightScroll = rememberScrollState()
     LaunchedEffect(state.phase) {
         if (state.phase == Phase.CONNECTED) (ctx as? MainActivity)?.startFullVpnIfReady()
     }
-    val idle = state.phase == Phase.IDLE || state.phase == Phase.ERROR
     val onConnect: () -> Unit = {
         when (state.phase) {
             Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
@@ -124,18 +135,22 @@ fun MainScreen() {
             else -> TorController.connect()
         }
     }
-    // کارت‌ها یک‌بار تعریف می‌شوند و در هر دو چیدمان (یک‌ستونه و دوستونه) استفاده می‌شوند.
-    val cards: @Composable () -> Unit = {
-        ConnectionOptionsCard(
-            transport = transport, country = country, enabled = idle,
-            onTransport = { t -> transport = t; prefs.transport = t.id },
-            onCountry = { c -> country = c; prefs.exitCountry = c },
-        )
-        BridgeCard(state)
-        ChannelCard()
-        AdvancedCard(prefs, state)
-        LogCard(state)
-        Text("UC Tor v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+    // کارت‌ها یک‌بار تعریف می‌شوند و در هر سه چیدمان استفاده می‌شوند. movableContentOf باعث می‌شود
+    // اگر چیدمان عوض شد، کارت‌ها «جابه‌جا» شوند و هیچ‌کدام از stateهایشان (متن، پنل باز، فوکوس) از نو ساخته نشود.
+    val cards = remember {
+        movableContentOf {
+            val idle = state.phase == Phase.IDLE || state.phase == Phase.ERROR
+            ConnectionOptionsCard(
+                transport = transport, country = country, enabled = idle,
+                onTransport = { t -> transport = t; prefs.transport = t.id },
+                onCountry = { c -> country = c; prefs.exitCountry = c },
+            )
+            BridgeCard(state)
+            ChannelCard()
+            AdvancedCard(prefs, state, advancedOpen) { advancedOpen = it }
+            LogCard(state, logOpen) { logOpen = it }
+            Text("UC Tor v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        }
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -145,69 +160,76 @@ fun MainScreen() {
                     Brush.verticalGradient(listOf(Color(0xFF1C1238), Bg, Bg))
                 )
             ) {
-                // safeDrawing = نوار وضعیت + دکمه‌های ناوبری (کنار صفحه در حالت افقی) + برش صفحه + کیبورد.
+                // لایه‌ی بیرونی: نوار وضعیت + نوار ناوبری + برش صفحه، «بدون کیبورد».
+                // انتخاب چیدمان فقط از اندازه‌ی همین لایه انجام می‌شود؛ پس باز شدن کیبورد هرگز چیدمان را عوض نمی‌کند.
                 BoxWithConstraints(
                     Modifier
                         .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.exclude(WindowInsets.ime))
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     val w = maxWidth
                     val h = maxHeight
                     val wide = w >= 600.dp && w > h * 1.15f
-                    if (wide) {
-                        // افقی / تبلت: دکمه و وضعیت یک طرف (ثابت و وسط‌چین)، کارت‌ها طرف دیگر (اسکرول).
-                        Row(
-                            Modifier.widthIn(max = 1000.dp).fillMaxSize(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            Box(Modifier.weight(0.42f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                    // لایه‌ی داخلی: فقط فضای باقی‌مانده بعد از کیبورد (محتوا کوچک می‌شود، ولی ساختارش ثابت می‌ماند).
+                    BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.TopCenter) {
+                        val innerH = maxHeight
+                        if (wide) {
+                            // افقی / تبلت: دکمه و وضعیت یک طرف (ثابت و وسط‌چین)، کارت‌ها طرف دیگر (اسکرول).
+                            Row(
+                                Modifier.widthIn(max = 1000.dp).fillMaxSize(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                Box(Modifier.weight(0.42f).fillMaxHeight().verticalScroll(leftScroll)) {
+                                    Column(
+                                        Modifier.fillMaxWidth().heightIn(min = innerH),
+                                        verticalArrangement = Arrangement.Center,
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Header()
+                                        Spacer(Modifier.height(6.dp))
+                                        ConnectButton(state, (h * 0.5f).coerceIn(110.dp, 180.dp), onConnect)
+                                        Spacer(Modifier.height(4.dp))
+                                        StatusBlock(state)
+                                    }
+                                }
                                 Column(
-                                    Modifier.fillMaxWidth().heightIn(min = h),
-                                    verticalArrangement = Arrangement.Center,
+                                    Modifier.weight(0.58f).fillMaxHeight().verticalScroll(rightScroll).padding(vertical = 8.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) { cards() }
+                            }
+                        } else if (h >= 600.dp) {
+                            // عمودی: هدر و دکمه بالا و ثابت؛ بقیه اسکرول می‌شود. عرض روی تبلت/فولد محدود و وسط‌چین است.
+                            Column(Modifier.widthIn(max = 560.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Header()
+                                Spacer(Modifier.height(4.dp))
+                                // وقتی کیبورد باز است دکمه کوچک می‌شود (همان composable، فقط اندازه‌اش) تا جا برای فیلدها بماند.
+                                ConnectButton(state, if (imeOpen) 84.dp else (h * 0.24f).coerceIn(120.dp, 164.dp), onConnect)
+                                Spacer(Modifier.height(4.dp))
+                                Column(
+                                    Modifier.weight(1f).fillMaxWidth().verticalScroll(mainScroll).padding(bottom = 12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Header()
-                                    Spacer(Modifier.height(6.dp))
-                                    ConnectButton(state, (h * 0.5f).coerceIn(110.dp, 180.dp), onConnect)
-                                    Spacer(Modifier.height(4.dp))
                                     StatusBlock(state)
+                                    cards()
                                 }
                             }
+                        } else {
+                            // ارتفاع کم (چندپنجره‌ای، فولد…): همه‌چیز با هم اسکرول می‌شود تا جایی بریده نشود.
                             Column(
-                                Modifier.weight(0.58f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) { cards() }
-                        }
-                    } else if (h >= 600.dp) {
-                        // عمودی: هدر و دکمه بالا و ثابت؛ بقیه اسکرول می‌شود. عرض روی تبلت/فولد محدود و وسط‌چین است.
-                        Column(Modifier.widthIn(max = 560.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Header()
-                            Spacer(Modifier.height(4.dp))
-                            ConnectButton(state, (h * 0.24f).coerceIn(120.dp, 164.dp), onConnect)
-                            Spacer(Modifier.height(4.dp))
-                            Column(
-                                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 12.dp),
+                                Modifier.widthIn(max = 560.dp).fillMaxSize().verticalScroll(mainScroll).padding(bottom = 12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
+                                Header()
+                                ConnectButton(state, 120.dp, onConnect)
                                 StatusBlock(state)
                                 cards()
                             }
-                        }
-                    } else {
-                        // ارتفاع کم (چندپنجره‌ای، فولد…): همه‌چیز با هم اسکرول می‌شود تا جایی بریده نشود.
-                        Column(
-                            Modifier.widthIn(max = 560.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Header()
-                            ConnectButton(state, 120.dp, onConnect)
-                            StatusBlock(state)
-                            cards()
                         }
                     }
                 }
@@ -226,7 +248,7 @@ private fun Header() {
                 .background(Brush.linearGradient(listOf(Violet, Color(0xFF4F46E5), Cyan))),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_launcher_monochrome), null, tint = Color.White, modifier = Modifier.size(22.dp))
+            Icon(painterResource(R.drawable.ic_uctor_mono), null, tint = Color.White, modifier = Modifier.size(22.dp))
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -296,7 +318,7 @@ private fun ConnectButton(state: UiState, size: Dp, onClick: () -> Unit) {
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    painterResource(R.drawable.ic_onion_mono), null,
+                    painterResource(R.drawable.ic_uctor_mono), null,
                     tint = if (connected) Green else Color.White,
                     modifier = Modifier.size(46.dp * k),
                 )
@@ -419,15 +441,14 @@ private fun ChannelCard() {
 }
 
 @Composable
-private fun AdvancedCard(prefs: Prefs, state: UiState) {
-    var open by remember { mutableStateOf(false) }
+private fun AdvancedCard(prefs: Prefs, state: UiState, open: Boolean, onOpenChange: (Boolean) -> Unit) {
     var custom by remember { mutableStateOf(prefs.customBridges) }
     var exNodes by remember { mutableStateOf(prefs.excludeNodes) }
     var exExit by remember { mutableStateOf(prefs.excludeExitNodes) }
     var exitNodes by remember { mutableStateOf(prefs.exitNodes) }
     GlassCard(padding = 10.dp) {
         Row(
-            Modifier.fillMaxWidth().clickable { open = !open },
+            Modifier.fillMaxWidth().clickable { onOpenChange(!open) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Filled.Settings, null, tint = Violet)
@@ -480,13 +501,12 @@ private fun Field(label: String, value: String, minLines: Int = 1, onChange: (St
 }
 
 @Composable
-private fun LogCard(state: UiState) {
-    var open by remember { mutableStateOf(false) }
+private fun LogCard(state: UiState, open: Boolean, onOpenChange: (Boolean) -> Unit) {
     val clip = LocalClipboardManager.current
     val ctx = LocalContext.current
     GlassCard(padding = 10.dp) {
         Row(
-            Modifier.fillMaxWidth().clickable { open = !open },
+            Modifier.fillMaxWidth().clickable { onOpenChange(!open) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Filled.Info, null, tint = Cyan)

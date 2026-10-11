@@ -159,7 +159,7 @@ class TorRunnerService : Service() {
         val stop = if (Build.VERSION.SDK_INT >= 26) PendingIntent.getForegroundService(this, 1, stopIntent, flags)
         else PendingIntent.getService(this, 1, stopIntent, flags)
         val n = NotificationCompat.Builder(this, UcTorApp.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_onion_mono)
+            .setSmallIcon(R.drawable.ic_uctor_mono)
             .setContentTitle("UC Tor")
             .setContentText("اتصال Tor فعال است")
             .setOngoing(true)

@@ -61,6 +61,9 @@ object TorController {
     /** اگر اتصال به‌خاطر نبودن خروجی در کشور انتخابی شکست بخورد، دلیلش اینجا می‌آید. */
     @Volatile private var countryFailure: String? = null
 
+    /** مسیر فایل‌های GeoIP نصب‌شده برای اتصال فعلی (null = داخل این نسخه‌ی برنامه نیست). */
+    @Volatile private var geoip: GeoIp.Paths? = null
+
     fun logFile(ctx: Context) = File(ctx.filesDir, "tor.log")
     fun stateFile(ctx: Context) = File(ctx.filesDir, "runner.state")
 
@@ -226,6 +229,9 @@ object TorController {
         logFile(app).delete()
         File(logFile(app).path + ".circ").delete()
         stateFile(app).delete()
+        // فایل GeoIP برای انتخاب کشور لازم است؛ همیشه نصب می‌شود تا Tor کد کشورها را بشناسد.
+        val geoipPaths = withContext(Dispatchers.IO) { GeoIp.install(app) }
+        geoip = geoipPaths
         val cfg = JSONObject().apply {
             put("socks", socks)
             put("http", http)
@@ -235,6 +241,10 @@ object TorController {
             put("excludeExitNodes", prefs.excludeExitNodes)
             put("exitNodes", prefs.exitNodes)
             put("exitCountry", prefs.exitCountry)
+            geoipPaths?.let { g ->
+                put("geoip", g.v4.absolutePath)
+                g.v6?.let { put("geoip6", it.absolutePath) }
+            }
         }
         try {
             TorRunnerService.start(app, cfg.toString())
@@ -270,9 +280,17 @@ object TorController {
             if (pct >= 100) {
                 val country = ExitCountries.find(prefs.exitCountry)
                 var probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
-                // ساختن مدار با خروجی یک کشور مشخص ممکن است کندتر باشد؛ یک بار دیگر هم امتحان می‌کنیم.
+                // ساختن مدار با خروجی یک کشور مشخص (مخصوصاً از راه بریج) کندتر است و Tor باید چند مدار را امتحان کند.
+                // تا ۲.۵ دقیقه دوباره امتحان می‌کنیم و فقط بعد از آن شکست را به کشور نسبت می‌دهیم.
                 if (!probe.ok && country != null) {
-                    probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
+                    val until = System.currentTimeMillis() + 150_000L
+                    while (!probe.ok && System.currentTimeMillis() < until) {
+                        currentCoroutineContext().ensureActive()
+                        _state.update {
+                            it.copy(status = "در حال ساخت مدار با خروجی ${country.name}…", detail = "${a.label} · این مرحله ممکن است تا چند دقیقه طول بکشد")
+                        }
+                        probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
+                    }
                 }
                 if (probe.ok) return true
                 if (country != null) {
@@ -330,14 +348,17 @@ object TorController {
     private fun countryReason(c: ExitCountry, probeMsg: String): String {
         val main = readText(logFile(app)).lowercase()
         val circ = readText(File(logFile(app).path + ".circ")).lowercase()
-        val geoipProblem = "geoip" in main && Regex("unable|could not|couldn't|cannot|can't|no such file|failed").containsMatchIn(main)
+        val bad = "unable|could not|couldn't|cannot|can't|no such file|failed|not found"
+        val geoipProblem = Regex("geoip[^\\n]*($bad)|($bad)[^\\n]*geoip").containsMatchIn(main)
         val why = when {
+            geoip == null ->
+                "این نسخه‌ی برنامه فایل GeoIP ندارد (دانلودش هنگام بیلد ناموفق بوده)؛ بدون آن Tor معمولاً کد کشور را نمی‌شناسد و مداری با خروجی کشور انتخابی نمی‌سازد."
             geoipProblem ->
                 "Tor فایل GeoIP را نخواند و نمی‌تواند خروجی‌ها را بر اساس کشور انتخاب کند."
             "failed to find node for hop" in circ || "strictnodes" in circ ->
                 "در این لحظه هیچ خروجی (exit) فعال و در دسترسی در ${c.name} پیدا نشد. چون فقط ${c.name} انتخاب شده، Tor سراغ کشور دیگری نمی‌رود."
             else ->
-                "Tor به شبکه وصل شد اما حدود دو دقیقه مداری با خروجی ${c.name} نساخت ($probeMsg). معمولاً یعنی خروجی‌های این کشور فعلاً کم، شلوغ یا آفلاین‌اند."
+                "Tor به شبکه وصل شد اما در چند دقیقه مداری با خروجی ${c.name} نساخت ($probeMsg). معمولاً یعنی خروجی‌های این کشور فعلاً کم، شلوغ یا آفلاین‌اند."
         }
         return why + "\nکشور دیگری را امتحان کنید یا روی «خودکار» بگذارید."
     }

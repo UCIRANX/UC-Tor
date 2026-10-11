@@ -15,6 +15,9 @@ object TorrcBuilder {
         appendLine("ClientOnly 1")
         appendLine("AvoidDiskWrites 1")
         appendLine("SafeLogging 1")
+        // بدون GeoIP، Tor کد کشور (مثل {de}) را نمی‌شناسد و انتخاب کشور هیچ‌وقت کار نمی‌کند.
+        cfg.optString("geoip").takeIf { it.isNotBlank() }?.let { appendLine("GeoIPFile ${clean(it)}") }
+        cfg.optString("geoip6").takeIf { it.isNotBlank() }?.let { appendLine("GeoIPv6File ${clean(it)}") }
         if (lines.isEmpty()) {
             appendLine("UseBridges 0")
         } else {

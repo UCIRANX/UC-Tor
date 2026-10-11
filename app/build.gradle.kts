@@ -147,4 +147,59 @@ val inspectTunnelAar by tasks.registering {
         }
     }
 }
-tasks.named("preBuild") { dependsOn(inspectTunnelAar) }
+
+// فایل‌های GeoIP رسمی Tor (geoip و geoip6) را هنگام بیلد داخل assets می‌گذارد.
+// بدون آن‌ها انتخاب کشور خروجی کار نمی‌کند (Tor کد کشور را نمی‌شناسد).
+// اگر فایل‌ها از قبل (مثلاً دستی) داخل app/src/main/assets/geoip باشند و معتبر باشند، دوباره دانلود نمی‌شوند.
+// اگر دانلود ناموفق باشد بیلد خراب نمی‌شود، ولی هشدار می‌دهد و برنامه در صفحه‌ی خطا دلیل را نشان می‌دهد.
+val downloadGeoip by tasks.registering {
+    doLast {
+        val dir = file("src/main/assets/geoip").apply { mkdirs() }
+        val sources = mapOf(
+            "geoip" to listOf(
+                "https://gitlab.torproject.org/tpo/core/tor/-/raw/main/src/config/geoip",
+                "https://raw.githubusercontent.com/torproject/tor/main/src/config/geoip",
+                "https://raw.githubusercontent.com/torproject/tor/release-0.4.8/src/config/geoip",
+            ),
+            "geoip6" to listOf(
+                "https://gitlab.torproject.org/tpo/core/tor/-/raw/main/src/config/geoip6",
+                "https://raw.githubusercontent.com/torproject/tor/main/src/config/geoip6",
+                "https://raw.githubusercontent.com/torproject/tor/release-0.4.8/src/config/geoip6",
+            ),
+        )
+        // هر خط معتبر: «شروع,پایان,کد‌کشور»؛ در geoip6 آدرس‌ها IPv6 هستند.
+        fun valid(f: File, v6: Boolean): Boolean {
+            if (!f.exists() || f.length() < (if (v6) 100_000L else 500_000L)) return false
+            val re = if (v6) Regex("^[0-9a-fA-F:]+,[0-9a-fA-F:]+,[A-Za-z?]{2}$") else Regex("^\\d+,\\d+,[A-Za-z?]{2}$")
+            return f.useLines { ls -> ls.take(5000).any { re.matches(it.trim()) } }
+        }
+        var missing = false
+        for ((name, urls) in sources) {
+            val v6 = name == "geoip6"
+            val dest = File(dir, name)
+            if (valid(dest, v6)) { println("[UC-GEOIP] $name از قبل موجود است (${dest.length()} بایت)"); continue }
+            var done = false
+            loop@ for (round in 1..2) for (u in urls) {
+                try {
+                    val tmp = File(dir, "$name.part")
+                    val c = java.net.URI(u).toURL().openConnection() as java.net.HttpURLConnection
+                    c.connectTimeout = 20_000; c.readTimeout = 90_000; c.instanceFollowRedirects = true
+                    c.setRequestProperty("User-Agent", "uctor-build")
+                    if (c.responseCode !in 200..299) { println("[UC-GEOIP] $u -> HTTP ${c.responseCode}"); continue }
+                    c.inputStream.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+                    if (valid(tmp, v6)) {
+                        dest.delete(); tmp.renameTo(dest)
+                        println("[UC-GEOIP] $name دانلود شد (${dest.length()} بایت) از $u")
+                        done = true; break@loop
+                    }
+                    println("[UC-GEOIP] $u فایل نامعتبر بود"); tmp.delete()
+                } catch (e: Exception) {
+                    println("[UC-GEOIP] $u ناموفق: ${e.message}")
+                }
+            }
+            if (!done && !v6) missing = true
+        }
+        if (missing) println("::warning::[UC-GEOIP] فایل geoip دانلود نشد؛ انتخاب کشور در این نسخه کار نخواهد کرد.")
+    }
+}
+tasks.named("preBuild") { dependsOn(inspectTunnelAar, downloadGeoip) }

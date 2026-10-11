@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,8 +64,8 @@ internal fun AppPicker(prefs: Prefs, onChange: (Set<String>) -> Unit) {
     val listH = (LocalConfiguration.current.screenHeightDp * 0.5f).dp.coerceIn(170.dp, 340.dp)
     var apps by remember { mutableStateOf<List<AppChoice>?>(null) }
     var selected by remember { mutableStateOf(prefs.selectedApps) }
-    var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(0) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(Unit) { apps = withContext(Dispatchers.IO) { AppChoices.list(ctx) } }
 
     val all = apps

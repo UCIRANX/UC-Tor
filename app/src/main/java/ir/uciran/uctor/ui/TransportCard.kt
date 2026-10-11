@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,7 +110,7 @@ internal fun ConnectionOptionsCard(
     onTransport: (Transport) -> Unit,
     onCountry: (String) -> Unit,
 ) {
-    var panel by remember { mutableStateOf(0) } // 0 = بسته، 1 = روش اتصال، 2 = کشور
+    var panel by rememberSaveable { mutableStateOf(0) } // 0 = بسته، 1 = روش اتصال، 2 = کشور
     val open = if (enabled) panel else 0
     val selectedCountry = ExitCountries.find(country)
     GlassCard(padding = 10.dp) {
