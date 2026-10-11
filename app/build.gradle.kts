@@ -1,4 +1,6 @@
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URI
 import java.util.Properties
 import java.util.zip.ZipFile
 
@@ -182,7 +184,7 @@ val downloadGeoip by tasks.registering {
             loop@ for (round in 1..2) for (u in urls) {
                 try {
                     val tmp = File(dir, "$name.part")
-                    val c = java.net.URI(u).toURL().openConnection() as java.net.HttpURLConnection
+                    val c = URI(u).toURL().openConnection() as HttpURLConnection
                     c.connectTimeout = 20_000; c.readTimeout = 90_000; c.instanceFollowRedirects = true
                     c.setRequestProperty("User-Agent", "uctor-build")
                     if (c.responseCode !in 200..299) { println("[UC-GEOIP] $u -> HTTP ${c.responseCode}"); continue }
