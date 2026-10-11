@@ -157,51 +157,62 @@ val inspectTunnelAar by tasks.registering {
 val downloadGeoip by tasks.registering {
     doLast {
         val dir = file("src/main/assets/geoip").apply { mkdirs() }
-        val sources = mapOf(
-            "geoip" to listOf(
-                "https://gitlab.torproject.org/tpo/core/tor/-/raw/main/src/config/geoip",
-                "https://raw.githubusercontent.com/torproject/tor/main/src/config/geoip",
-                "https://raw.githubusercontent.com/torproject/tor/release-0.4.8/src/config/geoip",
-            ),
-            "geoip6" to listOf(
-                "https://gitlab.torproject.org/tpo/core/tor/-/raw/main/src/config/geoip6",
-                "https://raw.githubusercontent.com/torproject/tor/main/src/config/geoip6",
-                "https://raw.githubusercontent.com/torproject/tor/release-0.4.8/src/config/geoip6",
-            ),
+        val repoPaths = listOf(
+            "https://raw.githubusercontent.com/torproject/tor/main/src/config/%s",
+            "https://github.com/torproject/tor/raw/main/src/config/%s",
+            "https://gitlab.torproject.org/tpo/core/tor/-/raw/main/src/config/%s",
+            "https://gitlab.torproject.org/tpo/core/tor/-/raw/release-0.4.8/src/config/%s",
+            "https://raw.githubusercontent.com/torproject/tor/release-0.4.8/src/config/%s",
+            "https://raw.githubusercontent.com/torproject/tor/release-0.4.7/src/config/%s",
+            "https://cdn.jsdelivr.net/gh/torproject/tor@main/src/config/%s",
+            "https://raw.githubusercontent.com/torproject/tor/release-0.4.5/src/config/%s",
         )
-        // هر خط معتبر: «شروع,پایان,کد‌کشور»؛ در geoip6 آدرس‌ها IPv6 هستند.
-        fun valid(f: File, v6: Boolean): Boolean {
-            if (!f.exists() || f.length() < (if (v6) 100_000L else 500_000L)) return false
-            val re = if (v6) Regex("^[0-9a-fA-F:]+,[0-9a-fA-F:]+,[A-Za-z?]{2}$") else Regex("^\\d+,\\d+,[A-Za-z?]{2}$")
-            return f.useLines { ls -> ls.take(5000).any { re.matches(it.trim()) } }
+        // هر خط داده «شروع,پایان,کد‌کشور» است (آدرس‌ها عددی یا متنی)؛ فقط ساختار کلی بررسی می‌شود.
+        val line = Regex("^[^,#\\s]+,[^,\\s]+,[A-Za-z?]{2}$")
+        fun check(f: File, v6: Boolean): String? {
+            if (!f.exists()) return "فایلی ساخته نشد"
+            val min = if (v6) 50_000L else 200_000L
+            if (f.length() < min) return "حجم فقط ${f.length()} بایت"
+            val ok = f.useLines { ls -> ls.take(5000).any { line.matches(it.trim()) } }
+            if (!ok) return "قالب خطوط ناشناخته؛ شروع فایل: " + f.useLines { ls -> ls.take(3).joinToString(" | ") { it.take(60) } }
+            return null
         }
+        val problems = mutableListOf<String>()
         var missing = false
-        for ((name, urls) in sources) {
+        for (name in listOf("geoip", "geoip6")) {
             val v6 = name == "geoip6"
             val dest = File(dir, name)
-            if (valid(dest, v6)) { println("[UC-GEOIP] $name از قبل موجود است (${dest.length()} بایت)"); continue }
+            if (check(dest, v6) == null) { println("[UC-GEOIP] $name از قبل موجود است (${dest.length()} بایت)"); continue }
             var done = false
-            loop@ for (round in 1..2) for (u in urls) {
+            loop@ for (round in 1..2) for (pattern in repoPaths) {
+                val u = pattern.format(name)
+                val tmp = File(dir, "$name.part")
                 try {
-                    val tmp = File(dir, "$name.part")
                     val c = URI(u).toURL().openConnection() as HttpURLConnection
                     c.connectTimeout = 20_000; c.readTimeout = 90_000; c.instanceFollowRedirects = true
-                    c.setRequestProperty("User-Agent", "uctor-build")
-                    if (c.responseCode !in 200..299) { println("[UC-GEOIP] $u -> HTTP ${c.responseCode}"); continue }
+                    c.setRequestProperty("User-Agent", "Mozilla/5.0 uctor-build")
+                    if (c.responseCode !in 200..299) {
+                        println("[UC-GEOIP] $u -> HTTP ${c.responseCode}")
+                        if (round == 2) problems += "$name: HTTP ${c.responseCode} (${u.substringAfter("://").substringBefore('/')})"
+                        continue
+                    }
                     c.inputStream.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
-                    if (valid(tmp, v6)) {
+                    val why = check(tmp, v6)
+                    if (why == null) {
                         dest.delete(); tmp.renameTo(dest)
                         println("[UC-GEOIP] $name دانلود شد (${dest.length()} بایت) از $u")
                         done = true; break@loop
                     }
-                    println("[UC-GEOIP] $u فایل نامعتبر بود"); tmp.delete()
+                    println("[UC-GEOIP] $u نامعتبر: $why"); tmp.delete()
+                    if (round == 2) problems += "$name: $why (${u.substringAfter("://").substringBefore('/')})"
                 } catch (e: Exception) {
-                    println("[UC-GEOIP] $u ناموفق: ${e.message}")
+                    println("[UC-GEOIP] $u ناموفق: ${e.javaClass.simpleName}: ${e.message}")
+                    if (round == 2) problems += "$name: ${e.javaClass.simpleName} ${e.message?.take(60)} (${u.substringAfter("://").substringBefore('/')})"
                 }
             }
             if (!done && !v6) missing = true
         }
-        if (missing) println("::warning::[UC-GEOIP] فایل geoip دانلود نشد؛ انتخاب کشور در این نسخه کار نخواهد کرد.")
+        if (missing) println("::warning::[UC-GEOIP] geoip دانلود نشد؛ انتخاب کشور کار نخواهد کرد. دلایل: " + problems.take(6).joinToString(" ; "))
     }
 }
 tasks.named("preBuild") { dependsOn(inspectTunnelAar, downloadGeoip) }
