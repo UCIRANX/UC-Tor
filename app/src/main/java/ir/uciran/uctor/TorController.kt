@@ -36,6 +36,8 @@ data class UiState(
     val httpPort: Int = 0,
     val log: List<String> = emptyList(),
     val bridgeSummary: String = "",
+    val vpnReady: Boolean = false,
+    val vpnError: String = "",
 )
 
 /** Runs in the main process: plans attempts, starts/stops the :tor process and watches tor's log. */
@@ -50,6 +52,10 @@ object TorController {
 
     fun logFile(ctx: Context) = File(ctx.filesDir, "tor.log")
     fun stateFile(ctx: Context) = File(ctx.filesDir, "runner.state")
+
+    fun setVpnStatus(ready: Boolean, error: String = "") {
+        _state.update { it.copy(vpnReady = ready, vpnError = error) }
+    }
 
     fun init(ctx: Context) {
         app = ctx.applicationContext
@@ -94,7 +100,7 @@ object TorController {
             j?.cancelAndJoin()
             stopRunner()
             Prefs(app).activeTransport = null
-            _state.update { it.copy(phase = Phase.IDLE, progress = 0, status = "قطع شد", detail = "", activeTransport = null) }
+            _state.update { it.copy(phase = Phase.IDLE, progress = 0, status = "قطع شد", detail = "", activeTransport = null, vpnReady = false, vpnError = "") }
         }
     }
 
@@ -222,7 +228,7 @@ object TorController {
             delay(3000)
             if (!isListening(p.socksPort)) {
                 p.activeTransport = null
-                _state.update { it.copy(phase = Phase.IDLE, progress = 0, status = "اتصال قطع شد", detail = "", activeTransport = null) }
+                _state.update { it.copy(phase = Phase.IDLE, progress = 0, status = "اتصال قطع شد", detail = "", activeTransport = null, vpnReady = false, vpnError = "") }
                 return
             }
             val (_, tail) = readLog()

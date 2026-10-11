@@ -4,22 +4,35 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import android.graphics.Color
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import ir.uciran.uctor.ui.MainScreen
 import ir.uciran.uctor.ui.UcTorTheme
 
 class MainActivity : ComponentActivity() {
+    private val vpnReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            TorController.setVpnStatus(intent.getBooleanExtra(FullVpnService.EXTRA_READY, false), intent.getStringExtra(FullVpnService.EXTRA_ERROR).orEmpty())
+        }
+    }
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     fun startFullVpnIfReady() {
         if (TorController.state.value.phase == Phase.CONNECTED && !Prefs(this).vpnRunning) VpnController.start(this)
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(vpnReceiver) }
+        super.onDestroy()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
@@ -40,6 +53,7 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         TorController.init(applicationContext)
+        ContextCompat.registerReceiver(this, vpnReceiver, IntentFilter(FullVpnService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         setContent { UcTorTheme { MainScreen() } }
     }
 }

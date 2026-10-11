@@ -19,6 +19,9 @@ class FullVpnService : VpnService() {
         const val ACTION_STOP = "ir.uciran.uctor.vpn.STOP"
         const val ACTION_PAUSE = "ir.uciran.uctor.vpn.PAUSE"
         const val ACTION_RESUME = "ir.uciran.uctor.vpn.RESUME"
+        const val ACTION_STATUS = "ir.uciran.uctor.vpn.STATUS"
+        const val EXTRA_READY = "ready"
+        const val EXTRA_ERROR = "error"
         private const val ID = 1002
         fun start(ctx: android.content.Context) = ContextCompat.startForegroundService(ctx, Intent(ctx, FullVpnService::class.java).setAction(ACTION_START))
         fun stop(ctx: android.content.Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(ACTION_STOP))
@@ -48,21 +51,25 @@ class FullVpnService : VpnService() {
 
     private fun startTunnel() {
         val p = Prefs(this)
-        if (p.socksPort <= 0) return
+        if (p.socksPort <= 0) {
+            broadcast(false, "Tor SOCKS هنوز آماده نیست")
+            return
+        }
         try {
             val b = Builder()
                 .setSession("UC Tor")
                 .setMtu(1500)
                 .addAddress("198.18.0.1", 15)
                 .addRoute("0.0.0.0", 0)
-                .addAddress("fd00:uctor::1", 64)
+                .addAddress("fd00:0c::1", 64)
                 .addRoute("::", 0)
                 .addDnsServer("10.0.0.1")
             if (p.tunnelMode == "selected") {
+                // Allowed and disallowed lists are mutually exclusive on Android.
                 p.selectedApps.forEach { runCatching { b.addAllowedApplication(it) } }
             } else {
-                // Prevent the UC Tor process itself from looping into its own TUN.
-                .addDisallowedApplication(packageName)
+                // Keep UC Tor itself out or its Tor/SOCKS traffic loops into the TUN.
+                b.addDisallowedApplication(packageName)
             }
             tun = b.establish() ?: error("Android VPN interface could not be established")
             val fd = tun!!.detachFd()
@@ -84,10 +91,14 @@ class FullVpnService : VpnService() {
             if (!Tun2SocksBridge.start(cfg, fd)) error("tun2socks native library is not available")
             running = true
             Prefs(this).vpnRunning = true
+            broadcast(true, "")
         } catch (t: Throwable) {
             tun?.close(); tun = null
             Prefs(this).vpnRunning = false
-            File(filesDir, "vpn.state").writeText("error:${t.message ?: t.javaClass.simpleName}")
+            val msg = t.message ?: t.javaClass.simpleName
+            File(filesDir, "vpn.state").writeText("error:$msg")
+            broadcast(false, msg)
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
@@ -97,9 +108,14 @@ class FullVpnService : VpnService() {
         tun?.close(); tun = null
         running = false
         Prefs(this).vpnRunning = false
+        broadcast(false, "stopped")
         meter.removeCallbacks(meterTick)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun broadcast(ready: Boolean, error: String) {
+        sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_READY, ready).putExtra(EXTRA_ERROR, error))
     }
 
     private fun updateNotification() { if (running && !Prefs(this).vpnPaused) foreground() }
@@ -126,7 +142,13 @@ class FullVpnService : VpnService() {
     private fun action(a: String, id: Int): PendingIntent = PendingIntent.getService(this, id, Intent(this, FullVpnService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     private fun setPaused(value: Boolean) {
         Prefs(this).vpnPaused = value
-        if (value) { runCatching { Tun2SocksBridge.stop() }; running = false } else if (!running) startTunnel()
+        if (value) {
+            runCatching { Tun2SocksBridge.stop() }
+            tun?.close(); tun = null
+            running = false
+            Prefs(this).vpnRunning = false
+            broadcast(false, "paused")
+        } else if (!running) startTunnel()
         foreground()
     }
 }

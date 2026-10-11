@@ -277,6 +277,14 @@ private fun StatusBlock(state: UiState) {
             else -> MaterialTheme.colorScheme.onBackground
         }
         Text(state.status, color = color, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
+        if (state.phase == Phase.CONNECTED && !state.vpnReady && state.vpnError.isBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text("در حال فعال‌سازی VPN کل گوشی…", fontSize = 12.sp, color = Cyan)
+        }
+        if (state.vpnError.isNotBlank() && state.phase == Phase.CONNECTED) {
+            Spacer(Modifier.height(4.dp))
+            Text("VPN فعال نشد: ${state.vpnError}", fontSize = 12.sp, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+        }
         if (state.detail.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
             Text(
