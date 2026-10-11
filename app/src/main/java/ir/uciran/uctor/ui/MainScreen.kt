@@ -111,66 +111,60 @@ fun MainScreen() {
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Surface(modifier = Modifier.fillMaxSize(), color = Bg, contentColor = MaterialTheme.colorScheme.onBackground) {
+        Surface(Modifier.fillMaxSize(), color = Bg, contentColor = MaterialTheme.colorScheme.onBackground) {
             Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color(0xFF1C1238), Bg, Bg)))
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(listOf(Color(0xFF1C1238), Bg, Bg))
+                )
             ) {
-                Box(Modifier.fillMaxSize()) {
                 Column(
                     Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .padding(start = 18.dp, end = 18.dp, top = 8.dp)
-                ) {
-                    Header()
-                    Spacer(Modifier.height(4.dp))
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        ConnectButton(state) {
-                            when (state.phase) {
-                                Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
-                                Phase.STOPPING -> Unit
-                                else -> TorController.connect()
-                            }
-                        }
-                    }
-                }
-                Column(
-                    modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .verticalScroll(rememberScrollState())
-                        .padding(start = 18.dp, end = 18.dp, top = 276.dp, bottom = 24.dp),
+                        .padding(horizontal = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    StatusBlock(state)
-                    BridgeRefreshChip(state)
-                    TransportCard(
-                        selected = transport,
-                        enabled = state.phase == Phase.IDLE || state.phase == Phase.ERROR,
-                    ) { t ->
-                        transport = t
-                        prefs.transport = t.id
+                    // Fixed zone: header and connect button never participate in scrolling.
+                    Header()
+                    Spacer(Modifier.height(6.dp))
+                    ConnectButton(state) {
+                        when (state.phase) {
+                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
+                            Phase.STOPPING -> Unit
+                            else -> TorController.connect()
+                        }
                     }
-                    AnimatedVisibility(visible = state.phase == Phase.CONNECTED) { ProxyCard(state) }
-                    ChannelCard()
-                    AdvancedCard(prefs, state)
-                    LogCard(state)
-                    Text(
-                        "UC Tor v${BuildConfig.VERSION_NAME}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                    )
                     Spacer(Modifier.height(8.dp))
-                }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(bottom = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            StatusBlock(state)
+                            BridgeRefreshChip(state)
+                            TransportCard(
+                                selected = transport,
+                                enabled = state.phase == Phase.IDLE || state.phase == Phase.ERROR,
+                            ) { t ->
+                                transport = t
+                                prefs.transport = t.id
+                            }
+                            AnimatedVisibility(visible = state.phase == Phase.CONNECTED) { ProxyCard(state) }
+                            ChannelCard()
+                            AdvancedCard(prefs, state)
+                            LogCard(state)
+                            Text("UC Tor v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
     }
 }
-
 @Composable
 private fun BridgeRefreshChip(state: UiState) {
     val busy = state.bridgeSummary.contains("دریافت")
@@ -231,7 +225,7 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .padding(top = 6.dp)
-            .size(224.dp)
+            .size(184.dp)
             .graphicsLayer {
                 val s = if (connecting) pulse else 1f
                 scaleX = s
@@ -240,20 +234,20 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
     ) {
         Box(
             Modifier
-                .size(224.dp)
+                .size(184.dp)
                 .clip(CircleShape)
                 .background(Brush.radialGradient(listOf(ring[0].copy(alpha = 0.35f), Color.Transparent)))
         )
         Box(
             Modifier
-                .size(186.dp)
+                .size(154.dp)
                 .graphicsLayer { rotationZ = if (connecting) angle else 0f }
                 .clip(CircleShape)
                 .background(Brush.sweepGradient(ring))
         )
         Box(
             Modifier
-                .size(172.dp)
+                .size(142.dp)
                 .clip(CircleShape)
                 .background(Surface1)
                 .clickable(enabled = state.phase != Phase.STOPPING, onClick = onClick),
@@ -263,7 +257,7 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
                 Icon(
                     painterResource(R.drawable.ic_onion_mono), null,
                     tint = if (connected) Green else Color.White,
-                    modifier = Modifier.size(58.dp),
+                    modifier = Modifier.size(46.dp),
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -274,7 +268,7 @@ private fun ConnectButton(state: UiState, onClick: () -> Unit) {
                         else -> "اتصال"
                     },
                     fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
+                    fontSize = 17.sp,
                 )
             }
         }
