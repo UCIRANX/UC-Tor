@@ -128,7 +128,7 @@ jobs:
           if [ -f settings.gradle.kts ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
           else echo "::notice::هنوز فایل زیپ پروژه آپلود نشده است."; echo "ok=false" >> "$GITHUB_OUTPUT"; fi
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         if: steps.check.outputs.ok == 'true'
         with:
           distribution: temurin
@@ -160,6 +160,8 @@ jobs:
 
       - name: Add whole-device VPN tunnel (hev-socks5-tunnel)
         if: steps.check.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p app/libs
