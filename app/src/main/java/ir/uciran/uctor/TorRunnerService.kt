@@ -91,6 +91,8 @@ class TorRunnerService : Service() {
             torrc.writeText(TorrcBuilder.build(cfg, lines, ports))
             main.post {
                 bound = try {
+                    // Binding alone does not start Tor. ACTION_START is required by tor-android.
+                    startService(Intent(this, TorService::class.java).setAction(TorService.ACTION_START))
                     bindService(Intent(this, TorService::class.java), conn, Context.BIND_AUTO_CREATE)
                 } catch (e: Exception) {
                     writeState("error:" + (e.message ?: "tor start failed"))

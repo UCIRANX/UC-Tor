@@ -4,7 +4,7 @@ package ir.uciran.uctor
 object Planner {
     data class Attempt(val transport: String, val label: String, val lines: List<String>)
 
-    val KNOWN = setOf("obfs4", "webtunnel", "snowflake", "meek_lite", "vanilla", "obfs3", "scramblesuit", "conjure")
+    val KNOWN = setOf("obfs4", "webtunnel", "snowflake", "meek_lite", "vanilla")
     private val AUTO_ORDER = listOf("webtunnel", "snowflake", "obfs4", "meek_lite")
 
     fun normalize(raw: String): String {

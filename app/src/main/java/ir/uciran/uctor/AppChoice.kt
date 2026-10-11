@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 
-/** Only apps a user can actually launch: user-installed apps plus launchable system apps. */
+/** User-installed apps plus system apps that expose a launcher entry, never background junk/services. */
 data class AppChoice(val packageName: String, val label: String, val icon: ApplicationInfo)
 
 object AppChoices {

@@ -6,9 +6,6 @@ enum class Transport(val id: String, val label: String, val desc: String) {
     SNOWFLAKE("snowflake", "snowflake", "از طریق پروکسی‌های داوطلب (WebRTC)؛ بریج لازم ندارد"),
     OBFS4("obfs4", "obfs4", "ترافیک را شبیه داده‌ی تصادفی نشان می‌دهد"),
     MEEK("meek_lite", "meek_lite", "از طریق CDN؛ کندتر ولی مقاوم"),
-    CONJURE("conjure", "conjure", "آزمایشی"),
-    OBFS3("obfs3", "obfs3", "قدیمی؛ فقط با بریج دستی"),
-    SCRAMBLESUIT("scramblesuit", "scramblesuit", "قدیمی؛ فقط با بریج دستی"),
     VANILLA("vanilla", "vanilla", "بریج ساده بدون مبهم‌سازی"),
     DIRECT("direct", "بدون بریج (مستقیم)", "در ایران معمولاً مسدود است");
 
@@ -19,7 +16,7 @@ enum class Transport(val id: String, val label: String, val desc: String) {
 
 /** Which transports this build can actually run (checked without loading native code). */
 object PtSupport {
-    private val lyrebird = setOf("obfs4", "obfs3", "scramblesuit", "meek_lite", "webtunnel")
+    private val lyrebird = setOf("obfs4", "meek_lite", "webtunnel")
 
     private val hasIpt: Boolean by lazy {
         runCatching { Class.forName("IPtProxy.Controller", false, PtSupport::class.java.classLoader); true }
@@ -41,7 +38,6 @@ object PtSupport {
     fun available(t: String): Boolean = when (t) {
         "auto", "direct", "vanilla" -> true
         in lyrebird, "snowflake" -> hasIpt
-        "conjure" -> hasIpt && names.any { it.contains("conjure") }
         else -> false
     }
 }

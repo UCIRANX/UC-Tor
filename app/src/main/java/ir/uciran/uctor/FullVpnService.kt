@@ -63,7 +63,7 @@ class FullVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .addAddress("fd00:0c::1", 64)
                 .addRoute("::", 0)
-                .addDnsServer("10.0.0.1")
+                .addDnsServer("198.18.0.2")
             if (p.tunnelMode == "selected") {
                 // Allowed and disallowed lists are mutually exclusive on Android.
                 p.selectedApps.forEach { runCatching { b.addAllowedApplication(it) } }
@@ -72,21 +72,28 @@ class FullVpnService : VpnService() {
                 b.addDisallowedApplication(packageName)
             }
             tun = b.establish() ?: error("Android VPN interface could not be established")
+            if (!waitForLocalPort(p.socksPort, 8_000)) error("Tor SOCKS آماده نیست")
             val fd = tun!!.detachFd()
             val cfg = File(filesDir, "hev-tun.conf")
+            // hev-socks5-tunnel uses this exact lowercase YAML schema.
+            // mapdns captures DNS requests from Android's synthetic DNS address and
+            // resolves them through the SOCKS5/Tor path, avoiding plaintext DNS leaks.
             cfg.writeText("""
-                TUN:
-                  NAME: tun0
-                  MTU: 1500
-                LOG:
-                  LEVEL: warn
-                SOCKS5:
-                  ADDR: 127.0.0.1
-                  PORT: ${p.socksPort}
-                  UDP_MODE: udp
-                DNS:
-                  ADDR: 10.0.0.1
-                  PORT: 53
+                tunnel:
+                  name: tun0
+                  mtu: 1500
+                  ipv4: 198.18.0.1
+                  ipv6: 'fc00::1'
+                socks5:
+                  address: 127.0.0.1
+                  port: ${p.socksPort}
+                  udp: 'udp'
+                mapdns:
+                  address: 198.18.0.2
+                  port: 53
+                  cache-size: 10000
+                misc:
+                  log-level: warn
             """.trimIndent())
             if (!Tun2SocksBridge.start(cfg, fd)) error("tun2socks native library is not available")
             running = true
@@ -101,6 +108,14 @@ class FullVpnService : VpnService() {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
+    }
+
+    private fun waitForLocalPort(port: Int, timeoutMs: Long): Boolean {
+        val until = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < until) {
+            try { java.net.Socket("127.0.0.1", port).use { return true } } catch (_: Exception) { Thread.sleep(150) }
+        }
+        return false
     }
 
     private fun stopTunnel() {

@@ -6,7 +6,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * Thin wrapper around IPtProxy (Lyrebird: obfs4/obfs3/scramblesuit/meek_lite/webtunnel, Snowflake, ...).
+ * Thin wrapper around IPtProxy (Lyrebird: obfs4/meek_lite/webtunnel, Snowflake, ...).
  * Uses reflection so small API changes between IPtProxy releases do not break the build.
  */
 class PtManager(stateDir: File) {
