@@ -145,7 +145,6 @@ fun MainScreen() {
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             StatusBlock(state)
-                            BridgeRefreshChip(state)
                             TransportCard(
                                 selected = transport,
                                 enabled = state.phase == Phase.IDLE || state.phase == Phase.ERROR,
@@ -153,6 +152,7 @@ fun MainScreen() {
                                 transport = t
                                 prefs.transport = t.id
                             }
+                            BridgeCard(state)
                             AnimatedVisibility(visible = state.phase == Phase.CONNECTED) { ProxyCard(state) }
                             ChannelCard()
                             AdvancedCard(prefs, state)
@@ -165,20 +165,6 @@ fun MainScreen() {
         }
     }
 }
-@Composable
-private fun BridgeRefreshChip(state: UiState) {
-    val busy = state.bridgeSummary.contains("دریافت")
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Surface2.copy(alpha=.75f)).clickable(enabled=!busy) { TorController.requestBridgeUpdate() }.padding(horizontal=14.dp, vertical=10.dp), verticalAlignment=Alignment.CenterVertically) {
-        Icon(Icons.Filled.Refresh, null, tint=Cyan, modifier=Modifier.size(19.dp))
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) { Text("تازه‌سازی بریج‌ها", fontWeight=FontWeight.Bold, fontSize=13.sp); Text("برای پیدا کردن مسیرهای جدید اتصال", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
-        Text(if (busy) "…" else "بروزرسانی", color=Cyan, fontSize=12.sp)
-    }
-    if (!busy && state.bridgeSummary.isNotBlank()) {
-        Text(state.bridgeSummary, modifier=Modifier.fillMaxWidth().padding(start=10.dp, end=10.dp, top=4.dp), fontSize=10.sp, color=MaterialTheme.colorScheme.onSurfaceVariant, maxLines=2)
-    }
-}
-
 @Composable
 private fun Header() {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -315,7 +301,7 @@ private fun StatusBlock(state: UiState) {
 }
 
 @Composable
-private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
+internal fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     Column(
         Modifier
@@ -504,12 +490,7 @@ private fun TunnelPicker(prefs: Prefs) {
         }
         if (mode=="selected") {
             TextButton(onClick={showApps=!showApps}) { Text(if(showApps) "بستن فهرست برنامه‌ها" else "انتخاب برنامه‌ها (${apps.size})") }
-            if(showApps) AppChoices.list(ctx).take(80).forEach { app ->
-                Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.fillMaxWidth().clickable { apps=if(app.packageName in apps) apps-app.packageName else apps+app.packageName; prefs.selectedApps=apps }) {
-                    Checkbox(checked=app.packageName in apps, onCheckedChange=null)
-                    Text(app.label, maxLines=1, modifier=Modifier.weight(1f), fontSize=13.sp)
-                }
-            }
+            if (showApps) AppPicker(prefs) { apps = it }
         }
     }
 }

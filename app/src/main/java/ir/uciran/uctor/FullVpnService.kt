@@ -30,6 +30,7 @@ class FullVpnService : VpnService() {
     companion object {
         const val ACTION_START = "ir.uciran.uctor.vpn.START"
         const val ACTION_STOP = "ir.uciran.uctor.vpn.STOP"
+        const val ACTION_STOP_ALL = "ir.uciran.uctor.vpn.STOP_ALL"
         const val ACTION_PAUSE = "ir.uciran.uctor.vpn.PAUSE"
         const val ACTION_RESUME = "ir.uciran.uctor.vpn.RESUME"
         const val ACTION_STATUS = "ir.uciran.uctor.vpn.STATUS"
@@ -64,6 +65,11 @@ class FullVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_STOP_ALL -> {
+                // «قطع کامل» از نوتیفیکیشن: هم Tor و هم VPN
+                TorController.disconnect()
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 stopRequested = true
                 worker.execute { stopTunnel() }
@@ -280,7 +286,7 @@ class FullVpnService : VpnService() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, if (paused) "اتصال مجدد" else "توقف موقت", action(if (paused) ACTION_RESUME else ACTION_PAUSE, 1))
-            .addAction(0, "قطع کامل", action(ACTION_STOP, 2))
+            .addAction(0, "قطع کامل", action(ACTION_STOP_ALL, 2))
             .build()
     }
 

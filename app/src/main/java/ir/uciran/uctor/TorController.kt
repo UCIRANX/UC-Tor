@@ -42,6 +42,10 @@ data class UiState(
     val bridgeSummary: String = "",
     val vpnReady: Boolean = false,
     val vpnError: String = "",
+    val bridgeCounts: List<Pair<String, Int>> = emptyList(),
+    val bridgeUpdated: String = "",
+    val bridgeBusy: Boolean = false,
+    val bridgeFailed: Boolean = false,
 )
 
 /** Runs in the main process: plans attempts, starts/stops the :tor process and watches tor's log. */
@@ -110,21 +114,25 @@ object TorController {
     }
 
     fun requestBridgeUpdate() {
+        if (state.value.bridgeBusy) return
         scope.launch {
-            _state.update { it.copy(bridgeSummary = "در حال دریافت بریج‌های تازه…") }
-            val ok = if (state.value.phase == Phase.CONNECTED) {
-                BridgeRepository.refreshViaTor(app, Prefs(app).httpPort) || BridgeRepository.refreshDirect(app)
-            } else {
-                BridgeRepository.refreshDirect(app)
-            }
+            _state.update { it.copy(bridgeBusy = true, bridgeFailed = false) }
+            val ok = try {
+                if (state.value.phase == Phase.CONNECTED) {
+                    BridgeRepository.refreshViaTor(app, Prefs(app).httpPort) || BridgeRepository.refreshDirect(app)
+                } else {
+                    BridgeRepository.refreshDirect(app)
+                }
+            } catch (e: Exception) { false }
             refreshBridgeSummary()
-            if (!ok) _state.update { it.copy(bridgeSummary = it.bridgeSummary + "\n(دریافت ناموفق بود؛ لیست قبلی استفاده می‌شود)") }
+            _state.update { it.copy(bridgeBusy = false, bridgeFailed = !ok) }
         }
     }
 
     private fun refreshBridgeSummary() {
         val b = BridgeRepository.load(app)
-        _state.update { it.copy(bridgeSummary = b.summary()) }
+        val order = listOf("webtunnel", "obfs4", "snowflake", "meek_lite", "vanilla")
+        _state.update { it.copy(bridgeSummary = b.summary(), bridgeCounts = order.map { t -> t to b.get(t).size }, bridgeUpdated = b.updated) }
     }
 
     private suspend fun runConnect() {
