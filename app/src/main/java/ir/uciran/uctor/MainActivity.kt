@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
+import androidx.core.content.ContextCompat
 import android.graphics.Color
 import androidx.activity.result.contract.ActivityResultContracts
 import ir.uciran.uctor.ui.MainScreen
