@@ -130,7 +130,7 @@ object TorController {
             _state.update { it.copy(bridgeBusy = true, bridgeFailed = false) }
             val ok = try {
                 if (state.value.phase == Phase.CONNECTED) {
-                    BridgeRepository.refreshViaTor(app, Prefs(app).httpPort) || BridgeRepository.refreshDirect(app)
+                    BridgeRepository.refreshViaTor(app, Prefs(app).httpPort, force = true) || BridgeRepository.refreshDirect(app)
                 } else {
                     BridgeRepository.refreshDirect(app)
                 }
