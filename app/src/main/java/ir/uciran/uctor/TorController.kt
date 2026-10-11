@@ -26,7 +26,6 @@ import java.net.Socket
 import java.net.Proxy
 import java.net.URL
 import java.net.HttpURLConnection
-import java.net.InetSocketAddress
 import kotlinx.coroutines.withContext
 
 enum class Phase { IDLE, CONNECTING, CONNECTED, STOPPING, ERROR }
