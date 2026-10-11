@@ -31,7 +31,11 @@ class MainActivity : ComponentActivity() {
     // Android's VPN approval must be shown before the notification permission.
     private val vpnPermission =
         registerForActivityResult(StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) requestNotificationPermission()
+            if (result.resultCode == RESULT_OK) {
+                requestNotificationPermission()
+                // بعد از تأیید مجوز، اگر Tor وصل است VPN را همین‌جا شروع کن.
+                if (TorController.state.value.phase == Phase.CONNECTED && !Prefs(this).vpnRunning) FullVpnService.start(this)
+            }
         }
 
     private fun requestNotificationPermission() {
@@ -54,11 +58,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         runCatching { unregisterReceiver(vpnReceiver) }
         super.onDestroy()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        VpnController.startAfterPermission(this, requestCode, resultCode)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

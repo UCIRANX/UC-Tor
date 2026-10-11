@@ -72,6 +72,7 @@ object TorController {
                         phase = Phase.CONNECTED, progress = 100, status = "متصل",
                         detail = p.activeTransport?.let { t -> "از طریق ${Planner.label(t)}" } ?: "",
                         activeTransport = p.activeTransport, socksPort = p.socksPort, httpPort = p.httpPort,
+                        vpnReady = p.vpnRunning,
                     )
                 }
                 if (job?.isActive != true) job = scope.launch { monitor() }
@@ -236,6 +237,8 @@ object TorController {
         while (true) {
             delay(3000)
             if (!isListening(p.socksPort)) {
+                // Tor مرده است؛ VPN را هم ببند تا ترافیک گوشی در تونل بی‌مقصد گیر نکند.
+                runCatching { FullVpnService.stop(app) }
                 p.activeTransport = null
                 _state.update { it.copy(phase = Phase.IDLE, progress = 0, status = "اتصال قطع شد", detail = "", activeTransport = null, vpnReady = false, vpnError = "") }
                 return
@@ -273,8 +276,16 @@ object TorController {
             return Pair(-1, emptyList())
         }
         val pct = bootRe.findAll(text).lastOrNull()?.groupValues?.get(1)?.toIntOrNull() ?: -1
-        val lines = text.lines().filter { it.isNotBlank() }.takeLast(40)
+        val lines = text.lines().filter { it.isNotBlank() }.takeLast(40) + vpnLogTail()
         return Pair(pct, lines)
+    }
+
+    /** آخرین خط‌های لاگ VPN و tun2socks، برای نمایش در کارت لاگ. */
+    private fun vpnLogTail(): List<String> {
+        fun tail(f: File, tag: String): List<String> = runCatching {
+            if (f.exists()) f.readLines().filter { it.isNotBlank() }.takeLast(15).map { if (tag.isEmpty()) it else "[$tag] $it" } else emptyList()
+        }.getOrDefault(emptyList())
+        return tail(FullVpnService.vpnLogFile(app), "") + tail(FullVpnService.hevLogFile(app), "hev")
     }
 
     private fun isListening(port: Int): Boolean = try {

@@ -1,4 +1,6 @@
+import java.io.File
 import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     id("com.android.application")
@@ -105,3 +107,44 @@ dependencies {
     // GitHub Actions downloads hev-socks5-tunnel.aar into app/libs before Gradle runs.
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
 }
+
+// عیب‌یابی: متدهای واقعی hev-socks5-tunnel را در لاگ بیلد چاپ می‌کند (خطوطی که با [UC-TUN] شروع می‌شوند).
+// این تسک هرگز بیلد را خراب نمی‌کند.
+val inspectTunnelAar by tasks.registering {
+    doLast {
+        try {
+            val aar = file("libs/hev-socks5-tunnel.aar")
+            if (!aar.exists()) {
+                println("[UC-TUN] فایل AAR پیدا نشد")
+            } else {
+                val outDir = layout.buildDirectory.dir("tun-inspect").get().asFile
+                outDir.deleteRecursively(); outDir.mkdirs()
+                val jar = File(outDir, "classes.jar")
+                ZipFile(aar).use { z ->
+                    println("[UC-TUN] محتویات AAR:")
+                    z.entries().asSequence().forEach { println("[UC-TUN]   ${it.name}") }
+                    val e = z.getEntry("classes.jar")
+                    if (e != null) jar.outputStream().use { o -> z.getInputStream(e).use { it.copyTo(o) } }
+                }
+                if (jar.exists()) {
+                    val names = ZipFile(jar).use { z ->
+                        z.entries().asSequence().map { it.name }
+                            .filter { it.endsWith(".class") }
+                            .map { it.removeSuffix(".class").replace('/', '.') }.toList()
+                    }
+                    println("[UC-TUN] کلاس‌ها: $names")
+                    val javap = File(System.getProperty("java.home"), "bin/javap").absolutePath
+                    val cmd = listOf(javap, "-p", "-s", "-cp", jar.absolutePath) + names
+                    val out = ProcessBuilder(cmd).redirectErrorStream(true).start()
+                        .inputStream.bufferedReader().readText()
+                    out.lines().forEach { println("[UC-TUN] $it") }
+                } else {
+                    println("[UC-TUN] classes.jar داخل AAR نبود")
+                }
+            }
+        } catch (t: Throwable) {
+            println("[UC-TUN] بررسی AAR ناموفق بود: ${t.message}")
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(inspectTunnelAar) }

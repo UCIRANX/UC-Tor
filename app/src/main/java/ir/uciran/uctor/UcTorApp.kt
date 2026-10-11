@@ -21,7 +21,11 @@ class UcTorApp : Application() {
             )
         }
         // The UI brain only lives in the main process; the ":tor" process just runs tor.
-        if (isMainProcess()) TorController.init(this)
+        if (isMainProcess()) {
+            // پروسه‌ی تازه یعنی سرویس VPN قبلی دیگر زنده نیست؛ پرچم قدیمی مانع شروع دوباره‌ی VPN نشود.
+            Prefs(this).vpnRunning = false
+            TorController.init(this)
+        }
     }
 
     private fun isMainProcess(): Boolean {

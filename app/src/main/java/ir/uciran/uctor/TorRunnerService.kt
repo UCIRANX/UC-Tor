@@ -63,6 +63,8 @@ class TorRunnerService : Service() {
         if (intent?.action == ACTION_START) {
             if (!started) {
                 started = true
+                // بدون foreground، سیستم پروسه‌ی :tor را بی‌صدا می‌بندد و VPN بی‌مقصد می‌ماند.
+                runCatching { goForeground() }
                 val cfg = intent.getStringExtra(EXTRA_CONFIG).orEmpty()
                 Thread({ launchTor(cfg) }, "uctor-start").start()
             }

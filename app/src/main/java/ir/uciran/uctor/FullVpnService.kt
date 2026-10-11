@@ -1,18 +1,31 @@
 package ir.uciran.uctor
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.util.concurrent.Executors
 
-/** Routes the whole device through the local Tor SOCKS listener. */
+/**
+ * کل ترافیک گوشی را از طریق پورت SOCKS محلی Tor عبور می‌دهد.
+ *
+ * نکته‌ی مهم: هیچ کار شبکه‌ای یا Thread.sleep روی main thread انجام نمی‌شود؛
+ * همه‌ی مراحل راه‌اندازی/توقف روی یک worker تک‌نخی (و به‌ترتیب) اجرا می‌شود.
+ */
 class FullVpnService : VpnService() {
     companion object {
         const val ACTION_START = "ir.uciran.uctor.vpn.START"
@@ -23,96 +36,181 @@ class FullVpnService : VpnService() {
         const val EXTRA_READY = "ready"
         const val EXTRA_ERROR = "error"
         private const val ID = 1002
-        fun start(ctx: android.content.Context) = ContextCompat.startForegroundService(ctx, Intent(ctx, FullVpnService::class.java).setAction(ACTION_START))
-        fun stop(ctx: android.content.Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(ACTION_STOP))
-        fun togglePause(ctx: android.content.Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(if (Prefs(ctx).vpnPaused) ACTION_RESUME else ACTION_PAUSE))
+        private const val TAG = "UCTor-VPN"
+
+        fun vpnLogFile(ctx: Context) = File(ctx.filesDir, "vpn.log")
+        fun hevLogFile(ctx: Context) = File(ctx.filesDir, "hev.log")
+
+        fun start(ctx: Context) = ContextCompat.startForegroundService(ctx, Intent(ctx, FullVpnService::class.java).setAction(ACTION_START))
+        fun stop(ctx: Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(ACTION_STOP))
+        fun togglePause(ctx: Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(if (Prefs(ctx).vpnPaused) ACTION_RESUME else ACTION_PAUSE))
     }
 
     private var tun: ParcelFileDescriptor? = null
-    private var running = false
-    private var lastRx = android.net.TrafficStats.getTotalRxBytes()
-    private var lastTx = android.net.TrafficStats.getTotalTxBytes()
-    private val meter = android.os.Handler(android.os.Looper.getMainLooper())
-    private val meterTick = object : Runnable { override fun run() { updateNotification(); meter.postDelayed(this, 1000) } }
+    @Volatile private var running = false
+    @Volatile private var stopRequested = false
+    private val worker = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
+    private val meterTick = object : Runnable {
+        override fun run() {
+            if (running && !Prefs(this@FullVpnService).vpnPaused) updateNotification()
+            main.postDelayed(this, 1000)
+        }
+    }
+    private var prevUp = 0L
+    private var prevDown = 0L
 
     override fun onBind(intent: Intent?): IBinder? = super.onBind(intent)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> { stopTunnel(); return START_NOT_STICKY }
-            ACTION_PAUSE -> { setPaused(true); return START_STICKY }
-            ACTION_RESUME -> { setPaused(false); return START_STICKY }
+            ACTION_STOP -> {
+                stopRequested = true
+                worker.execute { stopTunnel() }
+                return START_NOT_STICKY
+            }
+            ACTION_PAUSE -> {
+                Prefs(this).vpnPaused = true
+                foreground()
+                worker.execute { closeTunnel(); broadcast(false, "موقتاً متوقف است") }
+                return START_STICKY
+            }
+            ACTION_RESUME -> {
+                Prefs(this).vpnPaused = false
+                stopRequested = false
+                foreground()
+                worker.execute { startTunnel() }
+                return START_STICKY
+            }
         }
+        // شروع عادی (یا راه‌اندازی مجدد سیستم)
+        Prefs(this).vpnPaused = false
+        stopRequested = false
         foreground()
-        meter.removeCallbacks(meterTick); meter.post(meterTick)
-        if (!running) startTunnel()
+        main.removeCallbacks(meterTick); main.post(meterTick)
+        worker.execute { if (!running) startTunnel() }
         return START_STICKY
     }
 
+    override fun onRevoke() {
+        // کاربر مجوز VPN را گرفته یا VPN دیگری فعال شده است.
+        vlog("مجوز VPN لغو شد")
+        stopRequested = true
+        worker.execute { stopTunnel() }
+        super.onRevoke()
+    }
+
+    override fun onDestroy() {
+        main.removeCallbacks(meterTick)
+        worker.execute { closeTunnel() }
+        worker.shutdown()
+        super.onDestroy()
+    }
+
+    // ───────────────────────── راه‌اندازی تونل (روی worker) ─────────────────────────
+
     private fun startTunnel() {
+        if (running) return
         val p = Prefs(this)
-        if (p.socksPort <= 0) {
-            broadcast(false, "Tor SOCKS هنوز آماده نیست")
-            return
-        }
         try {
+            vlogReset()
+            val socks = p.socksPort
+            if (socks <= 0) error("پورت SOCKS تور هنوز مشخص نشده است")
+
+            // ۱) اول مطمئن شو Tor واقعاً آماده است؛ بعد TUN بساز (نه برعکس).
+            vlog("انتظار برای Tor SOCKS روی پورت $socks")
+            if (!waitForLocalPort(socks, 15_000L)) error("Tor SOCKS روی پورت $socks پاسخ نمی‌دهد")
+            if (stopRequested) { vlog("درخواست توقف رسید؛ شروع لغو شد"); return }
+
+            // ۲) ساخت رابط VPN
             val b = Builder()
                 .setSession("UC Tor")
                 .setMtu(1500)
-                .addAddress("198.18.0.1", 15)
+                .setMetered(false)
+                .addAddress("198.18.0.1", 32)
                 .addRoute("0.0.0.0", 0)
-                .addAddress("fd00:0c::1", 64)
+                .addAddress("fc00::1", 128)
                 .addRoute("::", 0)
                 .addDnsServer("198.18.0.2")
             if (p.tunnelMode == "selected") {
-                // Allowed and disallowed lists are mutually exclusive on Android.
-                p.selectedApps.forEach { runCatching { b.addAllowedApplication(it) } }
+                // لیست مجاز و ممنوع در اندروید با هم قابل ترکیب نیست.
+                // اگر لیست خالی بماند، همه‌ی برنامه‌ها (حتی خود UC Tor) وارد تونل می‌شوند و حلقه ایجاد می‌شود.
+                var added = 0
+                p.selectedApps.filter { it != packageName }.forEach {
+                    try { b.addAllowedApplication(it); added++ } catch (_: Exception) { vlog("برنامه‌ی نصب‌نشده نادیده گرفته شد: $it") }
+                }
+                if (added == 0) error("هیچ برنامه‌ای برای عبور از Tor انتخاب نشده است")
             } else {
-                // Keep UC Tor itself out or its Tor/SOCKS traffic loops into the TUN.
+                // خود UC Tor (پروسه‌ی اصلی و :tor) باید بیرون از تونل بماند وگرنه ترافیک Tor به خودش برمی‌گردد.
                 b.addDisallowedApplication(packageName)
             }
-            tun = b.establish() ?: error("Android VPN interface could not be established")
-            if (!waitForLocalPort(p.socksPort, 8_000)) error("Tor SOCKS آماده نیست")
-            val fd = tun!!.detachFd()
+            val pfd = b.establish() ?: error("ساخت رابط VPN ممکن نشد (مجوز VPN داده نشده یا VPN دیگری فعال است)")
+            tun = pfd
+            vlog("رابط TUN ساخته شد")
+            if (stopRequested) { closeTunnel(); return }
+
+            // ۳) راه‌اندازی tun2socks
             val cfg = File(filesDir, "hev-tun.conf")
-            // hev-socks5-tunnel uses this exact lowercase YAML schema.
-            // mapdns captures DNS requests from Android's synthetic DNS address and
-            // resolves them through the SOCKS5/Tor path, avoiding plaintext DNS leaks.
-            cfg.writeText("""
-                tunnel:
-                  name: tun0
-                  mtu: 1500
-                  ipv4: 198.18.0.1
-                  ipv6: 'fc00::1'
-                socks5:
-                  address: 127.0.0.1
-                  port: ${p.socksPort}
-                  udp: 'udp'
-                mapdns:
-                  address: 198.18.0.2
-                  port: 53
-                  cache-size: 10000
-                misc:
-                  log-level: warn
-            """.trimIndent())
-            if (!Tun2SocksBridge.start(cfg, fd)) error("tun2socks native library is not available")
-            if (!waitForTunnel(8_000L)) error("تونل TUN اجرا نشد")
+            val hevLog = hevLogFile(this).also { it.delete() }
+            cfg.writeText(buildHevConfig(socks, hevLog))
+            // fd را detach نمی‌کنیم تا همیشه بتوانیم TUN را خودمان ببندیم.
+            if (!Tun2SocksBridge.start(cfg, pfd.fd)) error(Tun2SocksBridge.lastError.ifBlank { "tun2socks اجرا نشد" })
+            vlog("tun2socks استارت شد؛ متدهای کتابخانه: ${Tun2SocksBridge.describe()}")
+
+            if (!waitForTunnel(4_000L)) error("tun2socks بعد از استارت فعال نماند. لاگ: ${tail(hevLog, 5)}")
+
+            prevUp = 0L; prevDown = 0L
             running = true
-            Prefs(this).vpnRunning = true
+            p.vpnRunning = true
+            vlog("VPN آماده است")
             broadcast(true, "")
         } catch (t: Throwable) {
-            tun?.close(); tun = null
-            Prefs(this).vpnRunning = false
             val msg = t.message ?: t.javaClass.simpleName
-            File(filesDir, "vpn.state").writeText("error:$msg")
+            vlog("خطا: $msg")
+            closeTunnel()
+            runCatching { File(filesDir, "vpn.state").writeText("error:$msg") }
             broadcast(false, msg)
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            main.post {
+                main.removeCallbacks(meterTick)
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
     }
 
+    /**
+     * کانفیگ hev-socks5-tunnel.
+     * - mapdns: درخواست‌های DNS اندروید (۱۹۸.۱۸.۰.۲) را می‌گیرد، آی‌پی مجازی از محدوده‌ی network/netmask می‌دهد
+     *   و نام دامنه را از طریق SOCKS5 به Tor می‌فرستد (بدون نشت DNS). network و netmask الزامی‌اند.
+     * - udp: عمداً تنظیم نشده؛ Tor از UDP ASSOCIATE پشتیبانی نمی‌کند، پس UDP عمومی (مثل QUIC) سریع رد می‌شود
+     *   و برنامه‌ها به TCP برمی‌گردند.
+     * - connect-timeout پیش‌فرض (۵ ثانیه) برای مدارهای Tor کوتاه است.
+     */
+    private fun buildHevConfig(socks: Int, hevLog: File): String = listOf(
+        "tunnel:",
+        "  mtu: 1500",
+        "  ipv4: 198.18.0.1",
+        "  ipv6: 'fc00::1'",
+        "socks5:",
+        "  address: 127.0.0.1",
+        "  port: $socks",
+        "mapdns:",
+        "  address: 198.18.0.2",
+        "  port: 53",
+        "  network: 100.64.0.0",
+        "  netmask: 255.192.0.0",
+        "  cache-size: 10000",
+        "misc:",
+        "  connect-timeout: 30000",
+        "  read-write-timeout: 300000",
+        "  log-file: '${hevLog.absolutePath}'",
+        "  log-level: warn",
+    ).joinToString("\n") + "\n"
+
     private fun waitForTunnel(timeoutMs: Long): Boolean {
         val until = System.currentTimeMillis() + timeoutMs
+        // کمی صبر می‌کنیم تا thread داخلی hev بالا بیاید و بعد وضعیت را می‌سنجیم.
+        Thread.sleep(600)
         while (System.currentTimeMillis() < until) {
             if (Tun2SocksBridge.isRunning()) return true
             Thread.sleep(150)
@@ -122,82 +220,105 @@ class FullVpnService : VpnService() {
 
     private fun waitForLocalPort(port: Int, timeoutMs: Long): Boolean {
         val until = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < until) {
-            try { java.net.Socket("127.0.0.1", port).use { return true } } catch (_: Exception) { Thread.sleep(150) }
+        while (System.currentTimeMillis() < until && !stopRequested) {
+            try {
+                Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 500) }
+                return true
+            } catch (_: Exception) {
+                Thread.sleep(200)
+            }
         }
         return false
     }
 
-    private fun stopTunnel() {
+    // ───────────────────────── توقف ─────────────────────────
+
+    /** ابتدا tun2socks متوقف می‌شود و بعد TUN بسته می‌شود. */
+    private fun closeTunnel() {
         runCatching { Tun2SocksBridge.stop() }
-        tun?.close(); tun = null
+        runCatching { tun?.close() }
+        tun = null
         running = false
         Prefs(this).vpnRunning = false
-        broadcast(false, "stopped")
-        meter.removeCallbacks(meterTick)
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
+    }
+
+    private fun stopTunnel() {
+        closeTunnel()
+        vlog("VPN متوقف شد")
+        broadcast(false, "متوقف شد")
+        main.post {
+            main.removeCallbacks(meterTick)
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun broadcast(ready: Boolean, error: String) {
         sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_READY, ready).putExtra(EXTRA_ERROR, error))
     }
 
-    private fun updateNotification() { if (running && !Prefs(this).vpnPaused) foreground() }
+    // ───────────────────────── نوتیفیکیشن ─────────────────────────
 
-    private fun foreground() {
+    private fun buildNotification(): Notification {
+        val paused = Prefs(this).vpnPaused
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), flags)
-        val n: Notification = NotificationCompat.Builder(this, UcTorApp.CHANNEL_ID)
+        val text = when {
+            paused -> "موقتاً متوقف است"
+            running -> {
+                val (down, up) = speeds()
+                "${TrafficMeter.text(down)} ↓   ${TrafficMeter.text(up)} ↑"
+            }
+            else -> "در حال راه‌اندازی VPN…"
+        }
+        return NotificationCompat.Builder(this, UcTorApp.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_uc)
             .setContentTitle("UC Tor")
-            .setContentText(if (Prefs(this).vpnPaused) "موقتاً متوقف است" else "${TrafficMeter.text(speedRx())} ↓   ${TrafficMeter.text(speedTx())} ↑")
+            .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, if (Prefs(this).vpnPaused) "اتصال مجدد" else "توقف موقت", action(if (Prefs(this).vpnPaused) ACTION_RESUME else ACTION_PAUSE, 1))
+            .addAction(0, if (paused) "اتصال مجدد" else "توقف موقت", action(if (paused) ACTION_RESUME else ACTION_PAUSE, 1))
             .addAction(0, "قطع کامل", action(ACTION_STOP, 2))
             .build()
-        val type = if (Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
-        ServiceCompat.startForeground(this, ID, n, type)
     }
 
-    private var prevStats = longArrayOf(0L, 0L)
-    private fun speedRx(): Long {
-        val a = Tun2SocksBridge.stats(); val n = a.getOrNull(0) ?: 0L
-        val d = (n - prevStats[0]).coerceAtLeast(0); prevStats[0] = n; return d
+    private fun foreground() {
+        // SPECIAL_USE فقط از API 34 معنی دارد.
+        val type = if (Build.VERSION.SDK_INT >= 34) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+        ServiceCompat.startForeground(this, ID, buildNotification(), type)
     }
-    private fun speedTx(): Long {
-        val a = Tun2SocksBridge.stats(); val n = a.getOrNull(1) ?: 0L
-        val d = (n - prevStats[1]).coerceAtLeast(0); prevStats[1] = n; return d
-    }
-    private fun action(a: String, id: Int): PendingIntent = PendingIntent.getService(this, id, Intent(this, FullVpnService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-    private fun setPaused(value: Boolean) {
-        Prefs(this).vpnPaused = value
-        if (value) {
-            runCatching { Tun2SocksBridge.stop() }
-            tun?.close(); tun = null
-            running = false
-            Prefs(this).vpnRunning = false
-            broadcast(false, "paused")
-        } else if (!running) startTunnel()
-        foreground()
-    }
-}
 
-/** Reflection keeps the Kotlin source buildable before the GitHub Action downloads the AAR. */
-object Tun2SocksBridge {
-    private var cls: Class<*>? = null
-    private var service: Any? = null
-    private fun load(): Class<*>? = runCatching { Class.forName("hev.htproxy.TProxyService") }.getOrNull()
-    fun start(config: File, fd: Int): Boolean = runCatching {
-        val c = load() ?: return false
-        val m = c.getMethod("TProxyStartService", String::class.java, Integer.TYPE)
-        val ok = m.invoke(null, config.absolutePath, fd) as? Boolean ?: false
-        if (ok) { cls = c; service = c }
-        ok
-    }.getOrDefault(false)
-    fun isRunning(): Boolean = runCatching { (cls?.getMethod("TProxyIsRunning")?.invoke(null) as? Boolean) == true }.getOrDefault(false)
-    fun stats(): LongArray = runCatching { (cls?.getMethod("TProxyGetStats")?.invoke(null) as? LongArray) ?: longArrayOf(0L, 0L) }.getOrDefault(longArrayOf(0L, 0L))
-    fun stop() { runCatching { cls?.getMethod("TProxyStopService")?.invoke(null) }; cls = null; service = null }
+    /** به‌روزرسانی نوتیفیکیشن بدون فراخوانی دوباره‌ی startForeground. */
+    private fun updateNotification() {
+        getSystemService(NotificationManager::class.java)?.notify(ID, buildNotification())
+    }
+
+    private fun speeds(): Pair<Long, Long> {
+        val a = Tun2SocksBridge.stats()
+        if (a.size < 4) return 0L to 0L
+        val up = a[1]; val down = a[3]
+        val d = (down - prevDown).coerceAtLeast(0); val u = (up - prevUp).coerceAtLeast(0)
+        prevDown = down; prevUp = up
+        return d to u
+    }
+
+    private fun action(a: String, id: Int): PendingIntent =
+        PendingIntent.getService(this, id, Intent(this, FullVpnService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+    // ───────────────────────── لاگ ─────────────────────────
+
+    private fun vlogReset() { runCatching { vpnLogFile(this).writeText("") } }
+
+    private fun vlog(msg: String) {
+        Log.i(TAG, msg)
+        runCatching {
+            val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            vpnLogFile(this).appendText("[VPN $t] $msg\n")
+        }
+    }
+
+    private fun tail(f: File, n: Int): String =
+        runCatching { f.readLines().takeLast(n).joinToString(" | ") }.getOrDefault("")
 }

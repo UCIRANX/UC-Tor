@@ -5,7 +5,7 @@
 - موتور: Tor رسمی (کتابخانه‌ی `tor-android` از Guardian Project) و IPtProxy برای پل‌ها
 - روش‌های اتصال: خودکار، webtunnel، snowflake، obfs4، meek_lite، conjure (اگر در IPtProxy موجود باشد)، obfs3، scramblesuit، vanilla و اتصال مستقیم
 - بریج‌ها: هر ساعت از Moat رسمی Tor، ۵ ریپوی گیت‌هاب و ۳ کانال تلگرام جمع‌آوری، تکراری‌ها حذف و تست می‌شوند
-- **VPN سراسری دستگاه** با Android VpnService + TUN + hev-socks5-tunnel: ترافیک کل گوشی، DNS و UDP به Tor فرستاده می‌شود؛ خود UC Tor از تونل مستثناست تا حلقه ایجاد نشود
+- **VPN سراسری دستگاه** با Android VpnService + TUN + hev-socks5-tunnel: ترافیک TCP کل گوشی و DNS به Tor فرستاده می‌شود (Tor از UDP عمومی پشتیبانی نمی‌کند)؛ خود UC Tor از تونل مستثناست تا حلقه ایجاد نشود
 - پروکسی محلی SOCKS5 و HTTP، با دکمه‌ی «افزودن به تلگرام»
 - کانال تلگرام: [@UCIRANIR](https://t.me/UCIRANIR)
 

@@ -290,7 +290,7 @@ private fun StatusBlock(state: UiState) {
         }
         if (state.vpnError.isNotBlank() && state.phase == Phase.CONNECTED) {
             Spacer(Modifier.height(4.dp))
-            Text("VPN فعال نشد: ${state.vpnError}", fontSize = 12.sp, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            Text("VPN: ${state.vpnError}", fontSize = 12.sp, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
         }
         if (state.detail.isNotBlank()) {
             Spacer(Modifier.height(4.dp))

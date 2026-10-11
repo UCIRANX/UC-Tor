@@ -6,7 +6,8 @@ object TorrcBuilder {
     private fun clean(s: String) = s.replace('\n', ' ').replace('\r', ' ').trim()
 
     fun build(cfg: JSONObject, lines: List<String>, ptPorts: Map<String, Int>): String = buildString {
-        appendLine("SocksPort 127.0.0.1:${cfg.getInt("socks")}")
+        // IPv6Traffic: در حالت VPN مقصدهای IPv6 هم از SOCKS می‌آیند؛ بدون این گزینه Tor آن‌ها را رد می‌کند.
+        appendLine("SocksPort 127.0.0.1:${cfg.getInt("socks")} IPv6Traffic")
         appendLine("HTTPTunnelPort 127.0.0.1:${cfg.getInt("http")}")
         appendLine("DNSPort 127.0.0.1:9053")
         appendLine("Log notice file ${cfg.getString("log")}")
