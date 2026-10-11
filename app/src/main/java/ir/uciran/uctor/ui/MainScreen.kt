@@ -118,12 +118,21 @@ fun MainScreen() {
                     .background(Brush.verticalGradient(listOf(Color(0xFF1C1238), Bg, Bg)))
             ) {
                 Box(Modifier.fillMaxSize()) {
-                Box(Modifier.align(Alignment.TopCenter).padding(top = 8.dp)) {
-                    ConnectButton(state) {
-                        when (state.phase) {
-                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
-                            Phase.STOPPING -> Unit
-                            else -> TorController.connect()
+                Column(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(start = 18.dp, end = 18.dp, top = 8.dp)
+                ) {
+                    Header()
+                    Spacer(Modifier.height(4.dp))
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        ConnectButton(state) {
+                            when (state.phase) {
+                                Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
+                                Phase.STOPPING -> Unit
+                                else -> TorController.connect()
+                            }
                         }
                     }
                 }
@@ -132,11 +141,10 @@ fun MainScreen() {
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
                         .verticalScroll(rememberScrollState())
-                        .padding(start = 18.dp, end = 18.dp, top = 198.dp, bottom = 24.dp),
+                        .padding(start = 18.dp, end = 18.dp, top = 276.dp, bottom = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Header()
                     StatusBlock(state)
                     BridgeRefreshChip(state)
                     TransportCard(
