@@ -82,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -301,7 +302,7 @@ private fun StatusBlock(state: UiState) {
 }
 
 @Composable
-internal fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
+internal fun GlassCard(padding: Dp = 16.dp, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     Column(
         Modifier
@@ -309,50 +310,11 @@ internal fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
             .clip(shape)
             .background(Surface1.copy(alpha = 0.94f))
             .border(1.dp, Color.White.copy(alpha = 0.07f), shape)
-            .padding(16.dp),
+            .padding(padding),
         content = content,
     )
 }
 
-@Composable
-private fun TransportCard(selected: Transport, enabled: Boolean, onSelect: (Transport) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    GlassCard {
-        Text("روش اتصال", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Box {
-            OutlinedButton(
-                onClick = { open = true },
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                Text(selected.label, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-                Icon(Icons.Filled.ArrowDropDown, null)
-            }
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                Transport.entries.forEach { t ->
-                    val ok = PtSupport.available(t.id)
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(if (ok) t.label else "${t.label} (در این نسخه موجود نیست)")
-                                Text(t.desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        },
-                        onClick = {
-                            open = false
-                            onSelect(t)
-                        },
-                        enabled = ok,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(selected.desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
 
 @Composable
 private fun ProxyCard(state: UiState) {
