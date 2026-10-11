@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Switch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -92,6 +94,8 @@ import ir.uciran.uctor.TorController
 import ir.uciran.uctor.Transport
 import ir.uciran.uctor.UiState
 import ir.uciran.uctor.MainActivity
+import ir.uciran.uctor.AppChoices
+import ir.uciran.uctor.AppChoice
 
 private const val TG_CHANNEL = "UCIRANIR"
 private const val TG_CHANNEL_URL = "https://t.me/UCIRANIR"
@@ -118,19 +122,13 @@ fun MainScreen() {
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                        .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 190.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Header()
-                    ConnectButton(state) {
-                        when (state.phase) {
-                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
-                            Phase.STOPPING -> Unit
-                            else -> TorController.connect()
-                        }
-                    }
                     StatusBlock(state)
+                    BridgeRefreshChip(state)
                     TransportCard(
                         selected = transport,
                         enabled = state.phase == Phase.IDLE || state.phase == Phase.ERROR,
@@ -149,8 +147,28 @@ fun MainScreen() {
                     )
                     Spacer(Modifier.height(8.dp))
                 }
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp)) {
+                    ConnectButton(state) {
+                        when (state.phase) {
+                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
+                            Phase.STOPPING -> Unit
+                            else -> TorController.connect()
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun BridgeRefreshChip(state: UiState) {
+    val busy = state.bridgeSummary.contains("دریافت")
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Surface2.copy(alpha=.75f)).clickable(enabled=!busy) { TorController.requestBridgeUpdate() }.padding(horizontal=14.dp, vertical=10.dp), verticalAlignment=Alignment.CenterVertically) {
+        Icon(Icons.Filled.Refresh, null, tint=Cyan, modifier=Modifier.size(19.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) { Text("تازه‌سازی بریج‌ها", fontWeight=FontWeight.Bold, fontSize=13.sp); Text("برای پیدا کردن مسیرهای جدید اتصال", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
+        Text(if (busy) "…" else "بروزرسانی", color=Cyan, fontSize=12.sp)
     }
 }
 
@@ -427,6 +445,8 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
         }
         AnimatedVisibility(visible = open) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
+                Text("مسیر عبور ترافیک", fontWeight = FontWeight.Bold)
+                TunnelPicker(prefs)
                 Text(
                     state.bridgeSummary, fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -456,6 +476,33 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
                     "تغییرات از اتصال بعدی اعمال می‌شوند.", fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TunnelPicker(prefs: Prefs) {
+    val ctx = LocalContext.current
+    var mode by remember { mutableStateOf(prefs.tunnelMode) }
+    var apps by remember { mutableStateOf(prefs.selectedApps) }
+    var showApps by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha=.16f)).padding(10.dp)) {
+        Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) { Text("کل گوشی", fontWeight=FontWeight.SemiBold); Text("همه‌ی برنامه‌ها از Tor", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
+            Switch(checked=mode=="all", onCheckedChange={ if(it){mode="all"; prefs.tunnelMode="all"} })
+        }
+        Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) { Text("فقط برنامه‌های انتخابی", fontWeight=FontWeight.SemiBold); Text("بقیه‌ی برنامه‌ها مستقیم وصل می‌شوند", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
+            Switch(checked=mode=="selected", onCheckedChange={ if(it){mode="selected"; prefs.tunnelMode="selected"}; showApps=it })
+        }
+        if (mode=="selected") {
+            TextButton(onClick={showApps=!showApps}) { Text(if(showApps) "بستن فهرست برنامه‌ها" else "انتخاب برنامه‌ها (${apps.size})") }
+            if(showApps) AppChoices.list(ctx).take(80).forEach { app ->
+                Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.fillMaxWidth().clickable { apps=if(app.packageName in apps) apps-app.packageName else apps+app.packageName; prefs.selectedApps=apps }) {
+                    Checkbox(checked=app.packageName in apps, onCheckedChange=null)
+                    Text(app.label, maxLines=1, modifier=Modifier.weight(1f), fontSize=13.sp)
+                }
             }
         }
     }

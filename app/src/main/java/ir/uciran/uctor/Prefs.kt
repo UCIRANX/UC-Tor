@@ -38,4 +38,13 @@ class Prefs(ctx: Context) {
     var vpnRunning: Boolean
         get() = sp.getBoolean("vpnRunning", false)
         set(v) = sp.edit().putBoolean("vpnRunning", v).apply()
+    var vpnPaused: Boolean
+        get() = sp.getBoolean("vpnPaused", false)
+        set(v) = sp.edit().putBoolean("vpnPaused", v).apply()
+    var tunnelMode: String
+        get() = str("tunnelMode", "all")
+        set(v) = put("tunnelMode", v)
+    var selectedApps: Set<String>
+        get() = sp.getStringSet("selectedApps", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("selectedApps", v).apply()
 }

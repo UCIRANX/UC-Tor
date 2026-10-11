@@ -6,7 +6,8 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import android.graphics.Color
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import ir.uciran.uctor.ui.MainScreen
@@ -28,7 +29,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        window.decorView.systemUiVisibility = 0
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED

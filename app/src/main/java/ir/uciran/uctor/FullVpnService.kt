@@ -17,22 +17,31 @@ class FullVpnService : VpnService() {
     companion object {
         const val ACTION_START = "ir.uciran.uctor.vpn.START"
         const val ACTION_STOP = "ir.uciran.uctor.vpn.STOP"
+        const val ACTION_PAUSE = "ir.uciran.uctor.vpn.PAUSE"
+        const val ACTION_RESUME = "ir.uciran.uctor.vpn.RESUME"
         private const val ID = 1002
         fun start(ctx: android.content.Context) = ContextCompat.startForegroundService(ctx, Intent(ctx, FullVpnService::class.java).setAction(ACTION_START))
         fun stop(ctx: android.content.Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(ACTION_STOP))
+        fun togglePause(ctx: android.content.Context) = ctx.startService(Intent(ctx, FullVpnService::class.java).setAction(if (Prefs(ctx).vpnPaused) ACTION_RESUME else ACTION_PAUSE))
     }
 
     private var tun: ParcelFileDescriptor? = null
     private var running = false
+    private var lastRx = android.net.TrafficStats.getTotalRxBytes()
+    private var lastTx = android.net.TrafficStats.getTotalTxBytes()
+    private val meter = android.os.Handler(android.os.Looper.getMainLooper())
+    private val meterTick = object : Runnable { override fun run() { updateNotification(); meter.postDelayed(this, 1000) } }
 
     override fun onBind(intent: Intent?): IBinder? = super.onBind(intent)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopTunnel()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> { stopTunnel(); return START_NOT_STICKY }
+            ACTION_PAUSE -> { setPaused(true); return START_STICKY }
+            ACTION_RESUME -> { setPaused(false); return START_STICKY }
         }
         foreground()
+        meter.removeCallbacks(meterTick); meter.post(meterTick)
         if (!running) startTunnel()
         return START_STICKY
     }
@@ -49,8 +58,12 @@ class FullVpnService : VpnService() {
                 .addAddress("fd00:uctor::1", 64)
                 .addRoute("::", 0)
                 .addDnsServer("10.0.0.1")
+            if (p.tunnelMode == "selected") {
+                p.selectedApps.forEach { runCatching { b.addAllowedApplication(it) } }
+            } else {
                 // Prevent the UC Tor process itself from looping into its own TUN.
                 .addDisallowedApplication(packageName)
+            }
             tun = b.establish() ?: error("Android VPN interface could not be established")
             val fd = tun!!.detachFd()
             val cfg = File(filesDir, "hev-tun.conf")
@@ -84,9 +97,12 @@ class FullVpnService : VpnService() {
         tun?.close(); tun = null
         running = false
         Prefs(this).vpnRunning = false
+        meter.removeCallbacks(meterTick)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
+
+    private fun updateNotification() { if (running && !Prefs(this).vpnPaused) foreground() }
 
     private fun foreground() {
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -94,13 +110,24 @@ class FullVpnService : VpnService() {
         val n: Notification = NotificationCompat.Builder(this, UcTorApp.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_onion_mono)
             .setContentTitle("UC Tor")
-            .setContentText("کل ترافیک گوشی از Tor عبور می‌کند")
+            .setContentText(if (Prefs(this).vpnPaused) "موقتاً متوقف است" else "${TrafficMeter.text(speedRx())} ↓   ${TrafficMeter.text(speedTx())} ↑")
             .setContentIntent(open)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .addAction(0, if (Prefs(this).vpnPaused) "اتصال مجدد" else "توقف موقت", action(if (Prefs(this).vpnPaused) ACTION_RESUME else ACTION_PAUSE, 1))
+            .addAction(0, "قطع کامل", action(ACTION_STOP, 2))
             .build()
         val type = if (Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, ID, n, type)
+    }
+
+    private fun speedRx(): Long { val n=android.net.TrafficStats.getTotalRxBytes(); val d=(n-lastRx).coerceAtLeast(0); lastRx=n; return d }
+    private fun speedTx(): Long { val n=android.net.TrafficStats.getTotalTxBytes(); val d=(n-lastTx).coerceAtLeast(0); lastTx=n; return d }
+    private fun action(a: String, id: Int): PendingIntent = PendingIntent.getService(this, id, Intent(this, FullVpnService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    private fun setPaused(value: Boolean) {
+        Prefs(this).vpnPaused = value
+        if (value) { runCatching { Tun2SocksBridge.stop() }; running = false } else if (!running) startTunnel()
+        foreground()
     }
 }
 
