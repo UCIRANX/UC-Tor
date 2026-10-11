@@ -19,7 +19,7 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "ir.uciran.uctor"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // NEVER change applicationId, otherwise new versions will not install over old ones.
