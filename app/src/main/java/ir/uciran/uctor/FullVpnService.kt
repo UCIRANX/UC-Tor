@@ -96,6 +96,7 @@ class FullVpnService : VpnService() {
                   log-level: warn
             """.trimIndent())
             if (!Tun2SocksBridge.start(cfg, fd)) error("tun2socks native library is not available")
+            if (!waitForTunnel(8_000L)) error("تونل TUN اجرا نشد")
             running = true
             Prefs(this).vpnRunning = true
             broadcast(true, "")
@@ -108,6 +109,15 @@ class FullVpnService : VpnService() {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
+    }
+
+    private fun waitForTunnel(timeoutMs: Long): Boolean {
+        val until = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < until) {
+            if (Tun2SocksBridge.isRunning()) return true
+            Thread.sleep(150)
+        }
+        return false
     }
 
     private fun waitForLocalPort(port: Int, timeoutMs: Long): Boolean {
@@ -152,8 +162,15 @@ class FullVpnService : VpnService() {
         ServiceCompat.startForeground(this, ID, n, type)
     }
 
-    private fun speedRx(): Long { val n=android.net.TrafficStats.getTotalRxBytes(); val d=(n-lastRx).coerceAtLeast(0); lastRx=n; return d }
-    private fun speedTx(): Long { val n=android.net.TrafficStats.getTotalTxBytes(); val d=(n-lastTx).coerceAtLeast(0); lastTx=n; return d }
+    private var prevStats = longArrayOf(0L, 0L)
+    private fun speedRx(): Long {
+        val a = Tun2SocksBridge.stats(); val n = a.getOrNull(0) ?: 0L
+        val d = (n - prevStats[0]).coerceAtLeast(0); prevStats[0] = n; return d
+    }
+    private fun speedTx(): Long {
+        val a = Tun2SocksBridge.stats(); val n = a.getOrNull(1) ?: 0L
+        val d = (n - prevStats[1]).coerceAtLeast(0); prevStats[1] = n; return d
+    }
     private fun action(a: String, id: Int): PendingIntent = PendingIntent.getService(this, id, Intent(this, FullVpnService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     private fun setPaused(value: Boolean) {
         Prefs(this).vpnPaused = value
@@ -180,5 +197,7 @@ object Tun2SocksBridge {
         if (ok) { cls = c; service = c }
         ok
     }.getOrDefault(false)
+    fun isRunning(): Boolean = runCatching { (cls?.getMethod("TProxyIsRunning")?.invoke(null) as? Boolean) == true }.getOrDefault(false)
+    fun stats(): LongArray = runCatching { (cls?.getMethod("TProxyGetStats")?.invoke(null) as? LongArray) ?: longArrayOf(0L, 0L) }.getOrDefault(longArrayOf(0L, 0L))
     fun stop() { runCatching { cls?.getMethod("TProxyStopService")?.invoke(null) }; cls = null; service = null }
 }

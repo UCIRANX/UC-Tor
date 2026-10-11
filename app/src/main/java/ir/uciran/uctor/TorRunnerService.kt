@@ -99,10 +99,29 @@ class TorRunnerService : Service() {
                     false
                 }
             }
+            val socks = cfg.optInt("socks", 0)
+            if (socks <= 0 || !waitForPort(socks, 30_000L)) {
+                writeState("error:Tor SOCKS آماده نشد")
+                shutdown()
+                return
+            }
+            // Do not tell the UI that Tor is connected until the SOCKS listener is real.
             writeState("running")
         } catch (t: Throwable) {
             writeState("error:" + (t.message ?: t.javaClass.simpleName))
         }
+    }
+
+    private fun waitForPort(port: Int, timeoutMs: Long): Boolean {
+        val until = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < until) {
+            try {
+                java.net.Socket("127.0.0.1", port).use { return true }
+            } catch (_: Exception) {
+                Thread.sleep(250)
+            }
+        }
+        return false
     }
 
     private fun torrcFile(): File = try {

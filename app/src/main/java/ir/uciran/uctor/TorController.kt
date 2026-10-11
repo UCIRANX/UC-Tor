@@ -23,6 +23,11 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.Proxy
+import java.net.URL
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import kotlinx.coroutines.withContext
 
 enum class Phase { IDLE, CONNECTING, CONNECTED, STOPPING, ERROR }
 
@@ -217,7 +222,12 @@ object TorController {
                     status = if (pct >= 0) "در حال اتصال… $pct٪" else "در حال راه‌اندازی…",
                 )
             }
-            if (pct >= 100) return true
+            if (pct >= 100) {
+                val probe = withContext(Dispatchers.IO) { SocksProbe.httpsThroughSocks(prefs.socksPort) }
+                if (probe.ok) return true
+                _state.update { it.copy(detail = "${a.label}: SOCKS برقرار است اما درخواست واقعی HTTPS پاسخ نداد (${probe.message})") }
+                return false
+            }
             if (now - lastChange > stallMs || now - start > maxMs) return false
         }
     }
