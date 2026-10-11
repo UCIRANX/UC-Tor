@@ -154,7 +154,6 @@ fun MainScreen() {
                                 prefs.transport = t.id
                             }
                             BridgeCard(state)
-                            AnimatedVisibility(visible = state.phase == Phase.CONNECTED) { ProxyCard(state) }
                             ChannelCard()
                             AdvancedCard(prefs, state)
                             LogCard(state)
@@ -316,33 +315,6 @@ internal fun GlassCard(padding: Dp = 16.dp, content: @Composable ColumnScope.() 
 }
 
 
-@Composable
-private fun ProxyCard(state: UiState) {
-    val ctx = LocalContext.current
-    val clip = LocalClipboardManager.current
-    GlassCard {
-        Text("پروکسی محلی (برای تلگرام و برنامه‌های دیگر)", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        LtrLine("SOCKS5", "127.0.0.1:${state.socksPort}")
-        LtrLine("HTTP", "127.0.0.1:${state.httpPort}")
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = { openUrl(ctx, "tg://socks?server=127.0.0.1&port=${state.socksPort}") },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text("افزودن به تلگرام") }
-            OutlinedButton(
-                onClick = {
-                    clip.setText(AnnotatedString("127.0.0.1:${state.socksPort}"))
-                    toast(ctx, "کپی شد")
-                },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text("کپی SOCKS") }
-        }
-    }
-}
 
 @Composable
 private fun LtrLine(label: String, value: String) {
@@ -435,27 +407,6 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
     }
 }
 
-@Composable
-private fun TunnelPicker(prefs: Prefs) {
-    val ctx = LocalContext.current
-    var mode by remember { mutableStateOf(prefs.tunnelMode) }
-    var apps by remember { mutableStateOf(prefs.selectedApps) }
-    var showApps by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha=.16f)).padding(10.dp)) {
-        Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) { Text("کل گوشی", fontWeight=FontWeight.SemiBold); Text("همه‌ی برنامه‌ها از Tor", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
-            Switch(checked=mode=="all", onCheckedChange={ if(it){mode="all"; prefs.tunnelMode="all"} })
-        }
-        Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) { Text("فقط برنامه‌های انتخابی", fontWeight=FontWeight.SemiBold); Text("بقیه‌ی برنامه‌ها مستقیم وصل می‌شوند", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
-            Switch(checked=mode=="selected", onCheckedChange={ if(it){mode="selected"; prefs.tunnelMode="selected"}; showApps=it })
-        }
-        if (mode=="selected") {
-            TextButton(onClick={showApps=!showApps}) { Text(if(showApps) "بستن فهرست برنامه‌ها" else "انتخاب برنامه‌ها (${apps.size})") }
-            if (showApps) AppPicker(prefs) { apps = it }
-        }
-    }
-}
 
 @Composable
 private fun Field(label: String, value: String, minLines: Int = 1, onChange: (String) -> Unit) {

@@ -86,6 +86,11 @@ object TorController {
 
     fun connect() {
         if (job?.isActive == true) return
+        // فوراً وارد حالت «در حال اتصال» می‌شویم تا سرویس VPN بداند باید منتظر Tor بماند.
+        _state.update { it.copy(phase = Phase.CONNECTING, progress = 0, status = "در حال اتصال…", detail = "", vpnReady = false, vpnError = "") }
+        // سرویس VPN همین حالا (وقتی برنامه جلوی چشم کاربر است) به‌صورت foreground شروع می‌شود؛
+        // اگر کاربر وسط اتصال برنامه را ببندد، سرویس خودش بعد از آماده شدن Tor VPN را بالا می‌آورد.
+        if (android.net.VpnService.prepare(app) == null) runCatching { FullVpnService.start(app) }
         job = scope.launch {
             try {
                 runConnect()

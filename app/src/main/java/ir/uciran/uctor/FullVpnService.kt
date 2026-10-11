@@ -19,6 +19,7 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * کل ترافیک گوشی را از طریق پورت SOCKS محلی Tor عبور می‌دهد.
@@ -51,6 +52,7 @@ class FullVpnService : VpnService() {
     @Volatile private var running = false
     @Volatile private var stopRequested = false
     private val worker = Executors.newSingleThreadExecutor()
+    private val starting = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
     private val meterTick = object : Runnable {
         override fun run() {
@@ -85,7 +87,7 @@ class FullVpnService : VpnService() {
                 Prefs(this).vpnPaused = false
                 stopRequested = false
                 foreground()
-                worker.execute { startTunnel() }
+                queueStart()
                 return START_STICKY
             }
         }
@@ -94,8 +96,14 @@ class FullVpnService : VpnService() {
         stopRequested = false
         foreground()
         main.removeCallbacks(meterTick); main.post(meterTick)
-        worker.execute { if (!running) startTunnel() }
+        queueStart()
         return START_STICKY
+    }
+
+    /** هر بار فقط یک راه‌اندازی در صف می‌ماند (درخواست‌های تکراری نادیده گرفته می‌شوند). */
+    private fun queueStart() {
+        if (!starting.compareAndSet(false, true)) return
+        worker.execute { try { if (!running) startTunnel() } finally { starting.set(false) } }
     }
 
     override fun onRevoke() {
@@ -120,6 +128,13 @@ class FullVpnService : VpnService() {
         val p = Prefs(this)
         try {
             vlogReset()
+            // ۰) صبر برای کامل شدن اتصال Tor. ممکن است کاربر در این مدت از برنامه خارج شده باشد؛
+            //    چون این سرویس از قبل foreground است، پروسه زنده می‌ماند و VPN خودکار بالا می‌آید.
+            vlog("انتظار برای کامل شدن اتصال Tor")
+            if (!waitForTor(300_000L)) {
+                if (!stopRequested) { vlog("اتصال Tor کامل نشد؛ VPN لغو شد"); stopTunnel() }
+                return
+            }
             val socks = p.socksPort
             if (socks <= 0) error("پورت SOCKS تور هنوز مشخص نشده است")
 
@@ -149,6 +164,12 @@ class FullVpnService : VpnService() {
             } else {
                 // خود UC Tor (پروسه‌ی اصلی و :tor) باید بیرون از تونل بماند وگرنه ترافیک Tor به خودش برمی‌گردد.
                 b.addDisallowedApplication(packageName)
+                // حالت «همه به‌جز تیک‌خورده‌ها»: برنامه‌های تیک‌خورده مستقیم وصل می‌شوند.
+                if (p.tunnelMode == "bypass") {
+                    p.selectedApps.filter { it != packageName }.forEach {
+                        try { b.addDisallowedApplication(it) } catch (_: Exception) { vlog("برنامه‌ی نصب‌نشده نادیده گرفته شد: $it") }
+                    }
+                }
             }
             val pfd = b.establish() ?: error("ساخت رابط VPN ممکن نشد (مجوز VPN داده نشده یا VPN دیگری فعال است)")
             tun = pfd
@@ -213,6 +234,23 @@ class FullVpnService : VpnService() {
         "  log-level: warn",
     ).joinToString("\n") + "\n"
 
+    private fun waitForTor(timeoutMs: Long): Boolean {
+        val until = System.currentTimeMillis() + timeoutMs
+        var idleSince = 0L
+        while (System.currentTimeMillis() < until && !stopRequested) {
+            val now = System.currentTimeMillis()
+            when (TorController.state.value.phase) {
+                Phase.CONNECTED -> return true
+                Phase.CONNECTING -> idleSince = 0L
+                else -> { // خطا / قطع / در حال توقف: چند ثانیه مهلت می‌دهیم و بعد منصرف می‌شویم
+                    if (idleSince == 0L) idleSince = now else if (now - idleSince > 3000) return false
+                }
+            }
+            Thread.sleep(400)
+        }
+        return false
+    }
+
     private fun waitForTunnel(timeoutMs: Long): Boolean {
         val until = System.currentTimeMillis() + timeoutMs
         // کمی صبر می‌کنیم تا thread داخلی hev بالا بیاید و بعد وضعیت را می‌سنجیم.
@@ -275,10 +313,11 @@ class FullVpnService : VpnService() {
                 val (down, up) = speeds()
                 "${TrafficMeter.text(down)} ↓   ${TrafficMeter.text(up)} ↑"
             }
-            else -> "در حال راه‌اندازی VPN…"
+            else -> "در حال اتصال…"
         }
         return NotificationCompat.Builder(this, UcTorApp.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_uc)
+            .setColor(0xFF39FF14.toInt()) // سبز فسفری برای آیکون در پرده‌ی نوتیفیکیشن
             .setContentTitle("UC Tor")
             .setContentText(text)
             .setContentIntent(open)

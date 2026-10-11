@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- آیکون نوتیفیکیشن: حروف بزرگ UC. اندروید آیکون نوار وضعیت را تک‌رنگ می‌کند و فقط شکل (آلفا) مهم است. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FF7CFF00" android:pathData="M4,5 L7,5 L7,13 C7,16 8.3,17.5 10.5,17.5 C12.7,17.5 14,16 14,13 L14,5 L17,5 L17,13 C17,18 14.5,20 10.5,20 C6.5,20 4,18 4,13 Z" />
-    <path android:fillColor="#FF7CFF00" android:pathData="M19,5 L19,20 L16.5,20 L16.5,5 Z" />
+    <path android:pathData="M2.9,6.4 V13.6 A3.3,3.3 0 0 0 9.5,13.6 V6.4" android:strokeColor="#FF39FF14" android:strokeWidth="2.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M21.9,8.2 A5.4,5.4 0 1 0 21.9,15.2" android:strokeColor="#FF39FF14" android:strokeWidth="2.4" android:strokeLineCap="round" />
 </vector>
