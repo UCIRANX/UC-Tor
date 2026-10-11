@@ -139,12 +139,12 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Install Android API 37 required by tor-android
+      - name: Install Android build platform
         if: steps.check.outputs.ok == 'true'
         run: |
           set -euo pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Signing key (created once, then reused)
         if: steps.check.outputs.ok == 'true'
