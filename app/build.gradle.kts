@@ -19,7 +19,7 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "ir.uciran.uctor"
-    compileSdk = 37
+    compileSdk = 35
 
     defaultConfig {
         // NEVER change applicationId, otherwise new versions will not install over old ones.
@@ -99,7 +99,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     // Tor (C tor, Guardian Project) + pluggable transports (Lyrebird, Snowflake, ...)
-    implementation("info.guardianproject:tor-android:0.4.9.11")
+    implementation("info.guardianproject:tor-android:0.4.9.6")
     implementation("info.guardianproject:jtorctl:0.4.5.7")
     implementation("com.netzarchitekten:IPtProxy:5.7.0")
     // GitHub Actions downloads hev-socks5-tunnel.aar into app/libs before Gradle runs.
