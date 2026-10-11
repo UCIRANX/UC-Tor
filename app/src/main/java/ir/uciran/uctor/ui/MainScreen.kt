@@ -173,7 +173,7 @@ private fun BridgeRefreshChip(state: UiState) {
         Text(if (busy) "…" else "بروزرسانی", color=Cyan, fontSize=12.sp)
     }
     if (!busy && state.bridgeSummary.isNotBlank()) {
-        Text(state.bridgeSummary, modifier=Modifier.fillMaxWidth().padding(horizontal=10.dp, top=4.dp), fontSize=10.sp, color=MaterialTheme.colorScheme.onSurfaceVariant, maxLines=2)
+        Text(state.bridgeSummary, modifier=Modifier.fillMaxWidth().padding(start=10.dp, end=10.dp, top=4.dp), fontSize=10.sp, color=MaterialTheme.colorScheme.onSurfaceVariant, maxLines=2)
     }
 }
 
