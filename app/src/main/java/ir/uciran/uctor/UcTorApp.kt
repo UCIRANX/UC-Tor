@@ -29,7 +29,7 @@ class UcTorApp : Application() {
             Application.getProcessName()
         } else {
             runCatching {
-                File("/proc/self/cmdline").readText().trim { it == '' || it.isWhitespace() }
+                File("/proc/self/cmdline").readText().trim { it == '\u0000' || it.isWhitespace() }
             }.getOrDefault(packageName)
         }
         return name == packageName
