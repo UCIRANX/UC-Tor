@@ -34,7 +34,7 @@ class TorRunnerService : Service() {
 
         fun start(ctx: Context, cfg: String) {
             val i = Intent(ctx, TorRunnerService::class.java).setAction(ACTION_START).putExtra(EXTRA_CONFIG, cfg)
-            ContextCompat.startForegroundService(ctx, i)
+            ctx.startService(i)
         }
 
         fun stop(ctx: Context) {
@@ -60,7 +60,6 @@ class TorRunnerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        goForeground()
         if (intent?.action == ACTION_START) {
             if (!started) {
                 started = true

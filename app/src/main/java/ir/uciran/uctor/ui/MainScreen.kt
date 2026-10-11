@@ -117,12 +117,22 @@ fun MainScreen() {
                     .fillMaxSize()
                     .background(Brush.verticalGradient(listOf(Color(0xFF1C1238), Bg, Bg)))
             ) {
+                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.align(Alignment.TopCenter).padding(top = 8.dp)) {
+                    ConnectButton(state) {
+                        when (state.phase) {
+                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
+                            Phase.STOPPING -> Unit
+                            else -> TorController.connect()
+                        }
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
                         .verticalScroll(rememberScrollState())
-                        .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 190.dp),
+                        .padding(start = 18.dp, end = 18.dp, top = 198.dp, bottom = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
@@ -147,15 +157,6 @@ fun MainScreen() {
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp)) {
-                    ConnectButton(state) {
-                        when (state.phase) {
-                            Phase.CONNECTED, Phase.CONNECTING -> TorController.disconnect()
-                            Phase.STOPPING -> Unit
-                            else -> TorController.connect()
-                        }
-                    }
-                }
             }
         }
     }
@@ -169,6 +170,9 @@ private fun BridgeRefreshChip(state: UiState) {
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) { Text("تازه‌سازی بریج‌ها", fontWeight=FontWeight.Bold, fontSize=13.sp); Text("برای پیدا کردن مسیرهای جدید اتصال", fontSize=11.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
         Text(if (busy) "…" else "بروزرسانی", color=Cyan, fontSize=12.sp)
+    }
+    if (!busy && state.bridgeSummary.isNotBlank()) {
+        Text(state.bridgeSummary, modifier=Modifier.fillMaxWidth().padding(horizontal=10.dp, top=4.dp), fontSize=10.sp, color=MaterialTheme.colorScheme.onSurfaceVariant, maxLines=2)
     }
 }
 
@@ -455,15 +459,6 @@ private fun AdvancedCard(prefs: Prefs, state: UiState) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
                 Text("مسیر عبور ترافیک", fontWeight = FontWeight.Bold)
                 TunnelPicker(prefs)
-                Text(
-                    state.bridgeSummary, fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(onClick = { TorController.requestBridgeUpdate() }, shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Filled.Refresh, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("به‌روزرسانی بریج‌ها")
-                }
                 Field("بریج‌های دستی (هر خط یک بریج)", custom, minLines = 3) {
                     custom = it
                     prefs.customBridges = it

@@ -124,7 +124,7 @@ class FullVpnService : VpnService() {
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), flags)
         val n: Notification = NotificationCompat.Builder(this, UcTorApp.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_onion_mono)
+            .setSmallIcon(R.drawable.ic_notification_uc)
             .setContentTitle("UC Tor")
             .setContentText(if (Prefs(this).vpnPaused) "موقتاً متوقف است" else "${TrafficMeter.text(speedRx())} ↓   ${TrafficMeter.text(speedTx())} ↑")
             .setContentIntent(open)
